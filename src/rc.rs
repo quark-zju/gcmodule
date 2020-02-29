@@ -1,3 +1,4 @@
+use crate::trace::Trace;
 use std::cell::Cell;
 use std::ops::Deref;
 use std::ptr::NonNull;
@@ -66,13 +67,15 @@ impl<T: ?Sized> Rc<T> {
     }
 }
 
-impl<T: ?Sized> Clone for Rc<T> {
+impl<T: Trace + ?Sized + 'static> Clone for Rc<T> {
     #[inline]
     fn clone(&self) -> Self {
         self.inc_ref();
         if !self.is_tracked() {
-            // TODO: Track this.
-            // self.set_tracked();
+            if self.deref().is_type_tracked() {
+                // TODO: Track this.
+            }
+            self.set_tracked();
         }
         Self(self.0)
     }
@@ -107,6 +110,7 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
         static DROPPED: AtomicBool = AtomicBool::new(false);
         struct X(&'static str);
+        crate::untrack!(X);
         impl Drop for X {
             fn drop(&mut self) {
                 DROPPED.store(true, SeqCst);
