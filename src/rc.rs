@@ -271,6 +271,7 @@ impl<T: Trace> Trace for Rc<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
 
     #[test]
     fn test_simple_untracked() {
@@ -314,5 +315,25 @@ mod tests {
             assert!(!DROPPED.load(SeqCst));
         }
         assert!(DROPPED.load(SeqCst));
+    }
+
+    #[test]
+    fn test_simple_cycles() {
+        assert_eq!(collect::collect_cycles(), 0);
+        {
+            let a: Rc<RefCell<Vec<Box<dyn Trace>>>> = Rc::new(RefCell::new(Vec::new()));
+            let b: Rc<RefCell<Vec<Box<dyn Trace>>>> = Rc::new(RefCell::new(Vec::new()));
+            assert_eq!(collect::collect_cycles(), 0);
+            {
+                let mut a = a.borrow_mut();
+                a.push(Box::new(b.clone()));
+            }
+            {
+                let mut b = b.borrow_mut();
+                b.push(Box::new(a.clone()));
+            }
+            assert_eq!(collect::collect_cycles(), 0);
+        }
+        assert_eq!(collect::collect_cycles(), 2);
     }
 }
