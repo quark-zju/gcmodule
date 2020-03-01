@@ -1,4 +1,4 @@
-use crate::rc::GcHeader;
+use crate::cc::GcHeader;
 
 pub type Tracer<'a> = dyn FnMut(&mut GcHeader) + 'a;
 

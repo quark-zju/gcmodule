@@ -1,6 +1,6 @@
-use crate::rc::Cc;
-use crate::rc::CcDyn;
-use crate::rc::GcHeader;
+use crate::cc::Cc;
+use crate::cc::CcDyn;
+use crate::cc::GcHeader;
 use std::cell::RefCell;
 use std::ops::DerefMut;
 use std::pin::Pin;
