@@ -22,6 +22,11 @@ pub struct Rc<T: Trace + 'static>(NonNull<RcBox<T>>);
 
 /// Type-erased `Rc<T>` with interfaces needed by GC.
 pub trait RcDyn {
+    /// Returns the reference count for cycle detection.
+    fn gc_ref_count(&self) -> usize;
+
+    /// Visit referents for cycle detection.
+    fn gc_traverse(&self, tracer: &mut Tracer);
 }
 
 impl<T: Trace + 'static> Rc<T> {
@@ -151,6 +156,20 @@ impl<T: Trace + 'static> Drop for Rc<T> {
 }
 
 impl<T: Trace> RcDyn for Rc<T> {
+    fn gc_ref_count(&self) -> usize {
+        let mut count = self.inner().ref_count.get();
+        if self.is_tracked() {
+            // Exclude the refcount kept by GcHeader.
+            // So if the cycle collector dry runs dec_ref, unreachable
+            // objects will have 0 as their ref_counts.
+            count -= 1;
+        }
+        count
+    }
+
+    fn gc_traverse(&self, tracer: &mut Tracer) {
+        self.deref().trace(tracer)
+    }
 }
 
 #[cfg(test)]
