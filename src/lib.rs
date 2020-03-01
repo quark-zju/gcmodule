@@ -1,3 +1,4 @@
+mod collect;
 mod rc;
 mod rcdyn;
 mod trace;

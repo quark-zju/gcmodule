@@ -1,3 +1,4 @@
+use crate::collect;
 use crate::rcdyn::RcDyn;
 use crate::trace::Trace;
 use std::cell::Cell;
@@ -18,9 +19,9 @@ struct RcBox<T: ?Sized> {
     value: T,
 }
 
-pub struct Rc<T: ?Sized>(NonNull<RcBox<T>>);
+pub struct Rc<T: Trace + 'static>(NonNull<RcBox<T>>);
 
-impl<T> Rc<T> {
+impl<T: Trace + 'static> Rc<T> {
     pub fn new(value: T) -> Rc<T> {
         let rc_box = RcBox {
             gc_header: None,
@@ -31,9 +32,7 @@ impl<T> Rc<T> {
         let ptr = unsafe { NonNull::new_unchecked(ptr) };
         Self(ptr)
     }
-}
 
-impl<T: ?Sized> Rc<T> {
     #[inline]
     fn inner(&self) -> &RcBox<T> {
         unsafe { self.0.as_ref() }
@@ -87,9 +86,7 @@ impl<T: ?Sized> Rc<T> {
         }
         // triggers 'drop()'
     }
-}
 
-impl<T: Trace + 'static> Rc<T> {
     fn gc_track(&mut self, prev: &mut Pin<Box<GcHeader>>) {
         if self.is_tracked() {
             return;
@@ -109,7 +106,7 @@ impl<T: Trace + 'static> Rc<T> {
     }
 }
 
-impl<T: ?Sized> Clone for Rc<T> {
+impl<T: Trace + 'static> Clone for Rc<T> {
     #[inline]
     fn clone(&self) -> Self {
         self.inc_ref();
@@ -117,7 +114,7 @@ impl<T: ?Sized> Clone for Rc<T> {
     }
 }
 
-impl<T: ?Sized> Deref for Rc<T> {
+impl<T: Trace + 'static> Deref for Rc<T> {
     type Target = T;
 
     #[inline]
@@ -126,23 +123,29 @@ impl<T: ?Sized> Deref for Rc<T> {
     }
 }
 
-impl<T: ?Sized> Drop for Rc<T> {
+impl<T: Trace + 'static> Drop for Rc<T> {
     fn drop(&mut self) {
+        debug_assert!(self.ref_count() > 0);
         self.dec_ref();
         match self.ref_count() {
             0 => {
-                debug_assert!(
-                    self.inner().gc_header.is_none()
-                        || self.inner().gc_header.as_ref().unwrap().value.is_none()
-                );
+                debug_assert!(self.inner().gc_header.is_none());
                 unsafe {
-                    (self.0.as_mut() as *mut RcBox<T>).drop_in_place();
+                    let _drop = Box::from_raw(self.0.as_mut());
                 }
             }
             1 if self.inner().gc_header.is_some() => {
                 self.gc_untrack();
             }
-            _ => (),
+            _ => {
+                // Opt-in GC if this type is tracked.
+                if self.is_type_tracked() {
+                    collect::GC_LIST.with(|ref_head| {
+                        let mut head = ref_head.borrow_mut();
+                        self.gc_track(&mut head);
+                    });
+                }
+            }
         }
     }
 }
@@ -152,11 +155,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_simple() {
+    fn test_simple_untracked() {
         use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
         static DROPPED: AtomicBool = AtomicBool::new(false);
         struct X(&'static str);
         crate::untrack!(X);
+        impl Drop for X {
+            fn drop(&mut self) {
+                DROPPED.store(true, SeqCst);
+            }
+        }
+        {
+            let v1 = Rc::new(X("abc"));
+            {
+                let v2 = v1.clone();
+                assert_eq!(v1.deref().0, v2.deref().0);
+            }
+            assert!(!DROPPED.load(SeqCst));
+        }
+        assert!(DROPPED.load(SeqCst));
+    }
+
+    #[test]
+    fn test_simple_tracked() {
+        use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+        static DROPPED: AtomicBool = AtomicBool::new(false);
+        struct X(&'static str);
+        impl Trace for X {}
         impl Drop for X {
             fn drop(&mut self) {
                 DROPPED.store(true, SeqCst);
