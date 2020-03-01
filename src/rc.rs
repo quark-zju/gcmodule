@@ -1,14 +1,20 @@
+use crate::rcdyn::RcDyn;
 use crate::trace::Trace;
 use std::cell::Cell;
 use std::ops::Deref;
+use std::ops::DerefMut;
+use std::pin::Pin;
 use std::ptr::NonNull;
 
-static FLAG_TRACKED: usize = 1;
-static FLAG_BIT_COUNT: u32 = 1;
+pub(crate) struct GcHeader {
+    pub(crate) next: *mut GcHeader,
+    pub(crate) prev: *mut GcHeader,
+    pub(crate) value: Option<Box<dyn RcDyn>>,
+}
 
 struct RcBox<T: ?Sized> {
-    // Lowest FLAG_BIT_COUNT bits are used for flags.
-    ref_count_with_flags: Cell<usize>,
+    pub(crate) gc_header: Option<Pin<Box<GcHeader>>>,
+    pub(crate) ref_count: Cell<usize>,
     value: T,
 }
 
@@ -16,9 +22,9 @@ pub struct Rc<T: ?Sized>(NonNull<RcBox<T>>);
 
 impl<T> Rc<T> {
     pub fn new(value: T) -> Rc<T> {
-        let ref_count_with_flags = Cell::new(1 << FLAG_BIT_COUNT);
         let rc_box = RcBox {
-            ref_count_with_flags,
+            gc_header: None,
+            ref_count: Cell::new(1),
             value,
         };
         let ptr = Box::into_raw(Box::new(rc_box));
@@ -34,49 +40,79 @@ impl<T: ?Sized> Rc<T> {
     }
 
     #[inline]
+    fn inner_mut(&mut self) -> &mut RcBox<T> {
+        unsafe { self.0.as_mut() }
+    }
+
+    #[inline]
     fn inc_ref(&self) {
         let inner = self.inner();
-        let new_count = inner.ref_count_with_flags.get() + (1 << FLAG_BIT_COUNT);
-        inner.ref_count_with_flags.set(new_count);
+        let new_count = inner.ref_count.get() + 1;
+        inner.ref_count.set(new_count);
     }
 
     #[inline]
     fn dec_ref(&self) {
         let inner = self.inner();
-        let new_count = inner.ref_count_with_flags.get() - (1 << FLAG_BIT_COUNT);
-        inner.ref_count_with_flags.set(new_count);
+        let new_count = inner.ref_count.get() - 1;
+        inner.ref_count.set(new_count);
     }
 
     #[inline]
     fn is_tracked(&self) -> bool {
         let inner = self.inner();
-        inner.ref_count_with_flags.get() & FLAG_TRACKED != 0
+        inner.gc_header.is_some()
     }
 
     #[inline]
-    fn set_tracked(&self) {
+    fn ref_count(&self) -> usize {
         let inner = self.inner();
-        let new_count = inner.ref_count_with_flags.get() | FLAG_TRACKED;
-        inner.ref_count_with_flags.set(new_count);
+        inner.ref_count.get()
     }
 
-    #[inline]
-    pub(crate) fn ref_count(&self) -> usize {
-        let inner = self.inner();
-        inner.ref_count_with_flags.get() >> FLAG_BIT_COUNT
+    fn gc_untrack(&mut self) {
+        if !self.is_tracked() {
+            return;
+        }
+        let inner = self.inner_mut();
+        let mut gc_header = None;
+        std::mem::swap(&mut gc_header, &mut inner.gc_header);
+        let mut gc_header = gc_header.unwrap();
+        debug_assert!(gc_header.value.is_some());
+        debug_assert!(!gc_header.prev.is_null());
+        debug_assert!(!gc_header.next.is_null());
+        unsafe {
+            (*(gc_header.prev)).next = gc_header.next;
+            (*(gc_header.next)).prev = gc_header.prev;
+        }
+        // triggers 'drop()'
     }
 }
 
-impl<T: Trace + ?Sized + 'static> Clone for Rc<T> {
+impl<T: Trace + 'static> Rc<T> {
+    fn gc_track(&mut self, prev: &mut Pin<Box<GcHeader>>) {
+        if self.is_tracked() {
+            return;
+        }
+        let cloned = self.clone();
+        let mut inner = self.inner_mut();
+        let next = prev.next;
+        let header = Box::pin(GcHeader {
+            prev: prev.deref_mut(),
+            next,
+            value: Some(Box::new(cloned)),
+        });
+        inner.gc_header = Some(header);
+        // FIXME: Set prev, next accordingly.
+        // unsafe { next.as_mut() }.unwrap().prev = inner.gc_header;
+        // prev.next = inner.gc_header;
+    }
+}
+
+impl<T: ?Sized> Clone for Rc<T> {
     #[inline]
     fn clone(&self) -> Self {
         self.inc_ref();
-        if !self.is_tracked() {
-            if self.deref().is_type_tracked() {
-                // TODO: Track this.
-            }
-            self.set_tracked();
-        }
         Self(self.0)
     }
 }
@@ -93,10 +129,20 @@ impl<T: ?Sized> Deref for Rc<T> {
 impl<T: ?Sized> Drop for Rc<T> {
     fn drop(&mut self) {
         self.dec_ref();
-        if self.ref_count() == 0 {
-            unsafe {
-                (self.0.as_mut() as *mut RcBox<T>).drop_in_place();
+        match self.ref_count() {
+            0 => {
+                debug_assert!(
+                    self.inner().gc_header.is_none()
+                        || self.inner().gc_header.as_ref().unwrap().value.is_none()
+                );
+                unsafe {
+                    (self.0.as_mut() as *mut RcBox<T>).drop_in_place();
+                }
             }
+            1 if self.inner().gc_header.is_some() => {
+                self.gc_untrack();
+            }
+            _ => (),
         }
     }
 }
