@@ -8,4 +8,5 @@ description = "Garbage collection support inspired by Python's gc module."
 keywords = ["gc"]
 repository = "https://github.com/quark-zju/gcmodule"
 
-[dependencies]
+[dev-dependencies]
+quickcheck = "0.9"

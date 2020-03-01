@@ -237,3 +237,10 @@ collect: 2 unreachable objects
 ?: drop (ignored), gc_mark_for_release, drop (release), gc_mark_for_release, drop (release)"#
     );
 }
+
+quickcheck! {
+    fn test_quickcheck_16_vertex_graph(edges: Vec<u8>) -> bool {
+        test_small_graph(16, &edges);
+        true
+    }
+}
