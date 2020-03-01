@@ -22,6 +22,9 @@ struct RcBox<T: ?Sized> {
 
 pub struct Rc<T: Trace + 'static>(NonNull<RcBox<T>>);
 
+const REF_COUNT_MARKED_FOR_DROP: usize = usize::max_value();
+const REF_COUNT_MARKED_FOR_FREE: usize = REF_COUNT_MARKED_FOR_DROP - 1;
+
 /// Type-erased `Rc<T>` with interfaces needed by GC.
 pub(crate) trait RcDyn {
     /// Returns the reference count for cycle detection.
@@ -29,6 +32,36 @@ pub(crate) trait RcDyn {
 
     /// Visit referents for cycle detection.
     fn gc_traverse(&self, tracer: &mut Tracer);
+
+    /// Mark for drop. Transfer ownship of `Box<dyn RcDyn>` from `self`.
+    /// Must call `gc_force_drop_without_release` for the next step.
+    fn gc_prepare_drop(&mut self) -> Box<dyn RcDyn>;
+
+    /// Call customized drop logic (`T::drop`) without releasing memory.
+    /// Remove self from the GC list.
+    /// Must call `gc_mark_for_release` for the next step.
+    fn gc_force_drop_without_release(&mut self);
+
+    /// Mark for releasing memory.
+    /// At this point there should be only one owner of the `RcBox<T>`, which is
+    /// the `Box<dyn RcDyn>` returned by `gc_prepare_drop`. Dropping that owner
+    /// will release the memory of `RcBox<T>`.
+    fn gc_mark_for_release(&mut self);
+}
+
+/// A dummy implementation without drop side-effects.
+pub(crate) struct RcDummy;
+
+impl RcDyn for RcDummy {
+    fn gc_ref_count(&self) -> usize {
+        1
+    }
+    fn gc_traverse(&self, _tracer: &mut Tracer) {}
+    fn gc_prepare_drop(&mut self) -> Box<dyn RcDyn> {
+        Box::new(Self)
+    }
+    fn gc_force_drop_without_release(&mut self) {}
+    fn gc_mark_for_release(&mut self) {}
 }
 
 impl<T: Trace + 'static> Rc<T> {
@@ -156,6 +189,15 @@ impl<T: Trace + 'static> Drop for Rc<T> {
                 self.dec_ref();
                 self.gc_untrack();
             }
+            REF_COUNT_MARKED_FOR_DROP => {
+                // Do nothing. Drop is being done by gc_force_drop_without_release().
+            }
+            REF_COUNT_MARKED_FOR_FREE => {
+                // T was dropped by gc_force_drop_without_release.
+                // Just release the memory.
+                let rc_box: Box<RcBox<T>> = unsafe { Box::from_raw(self.0.as_mut()) };
+                drop(rc_box);
+            }
             0 => {
                 panic!("bug: ref_count should not be 0");
             }
@@ -180,6 +222,30 @@ impl<T: Trace> RcDyn for Rc<T> {
 
     fn gc_traverse(&self, tracer: &mut Tracer) {
         self.deref().trace(tracer)
+    }
+
+    fn gc_prepare_drop(&mut self) -> Box<dyn RcDyn> {
+        debug_assert!(self.is_tracked());
+        self.inner().ref_count.set(REF_COUNT_MARKED_FOR_DROP);
+        let mut result: Box<dyn RcDyn> = Box::new(RcDummy);
+        std::mem::swap(&mut result, unsafe {
+            &mut (*self.inner_mut().gc_header).value
+        });
+        result
+    }
+
+    fn gc_force_drop_without_release(&mut self) {
+        debug_assert!(self.is_tracked());
+        debug_assert!(self.ref_count() == REF_COUNT_MARKED_FOR_DROP);
+        self.gc_untrack();
+        let inner = self.inner_mut();
+        unsafe { ManuallyDrop::drop(&mut inner.value) };
+    }
+
+    fn gc_mark_for_release(&mut self) {
+        debug_assert!(!self.is_tracked());
+        debug_assert!(self.ref_count() == REF_COUNT_MARKED_FOR_DROP);
+        self.inner().ref_count.set(REF_COUNT_MARKED_FOR_FREE);
     }
 }
 
