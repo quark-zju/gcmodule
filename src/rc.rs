@@ -11,31 +11,31 @@ use std::ptr::NonNull;
 pub struct GcHeader {
     pub(crate) next: *mut GcHeader,
     pub(crate) prev: *mut GcHeader,
-    pub(crate) value: Box<dyn RcDyn>,
+    pub(crate) value: Box<dyn CcDyn>,
 }
 
-struct RcBox<T: ?Sized> {
+struct CcBox<T: ?Sized> {
     pub(crate) gc_header: *mut GcHeader,
     pub(crate) ref_count: Cell<usize>,
     value: ManuallyDrop<T>,
 }
 
-pub struct Rc<T: Trace + 'static>(NonNull<RcBox<T>>);
+pub struct Cc<T: Trace + 'static>(NonNull<CcBox<T>>);
 
 const REF_COUNT_MARKED_FOR_DROP: usize = usize::max_value();
 const REF_COUNT_MARKED_FOR_FREE: usize = REF_COUNT_MARKED_FOR_DROP - 1;
 
-/// Type-erased `Rc<T>` with interfaces needed by GC.
-pub(crate) trait RcDyn {
+/// Type-erased `Cc<T>` with interfaces needed by GC.
+pub(crate) trait CcDyn {
     /// Returns the reference count for cycle detection.
     fn gc_ref_count(&self) -> usize;
 
     /// Visit referents for cycle detection.
     fn gc_traverse(&self, tracer: &mut Tracer);
 
-    /// Mark for drop. Transfer ownship of `Box<dyn RcDyn>` from `self`.
+    /// Mark for drop. Transfer ownship of `Box<dyn CcDyn>` from `self`.
     /// Must call `gc_force_drop_without_release` for the next step.
-    fn gc_prepare_drop(&mut self) -> Box<dyn RcDyn>;
+    fn gc_prepare_drop(&mut self) -> Box<dyn CcDyn>;
 
     /// Call customized drop logic (`T::drop`) without releasing memory.
     /// Remove self from the GC list.
@@ -43,30 +43,30 @@ pub(crate) trait RcDyn {
     fn gc_force_drop_without_release(&mut self);
 
     /// Mark for releasing memory.
-    /// At this point there should be only one owner of the `RcBox<T>`, which is
-    /// the `Box<dyn RcDyn>` returned by `gc_prepare_drop`. Dropping that owner
-    /// will release the memory of `RcBox<T>`.
+    /// At this point there should be only one owner of the `CcBox<T>`, which is
+    /// the `Box<dyn CcDyn>` returned by `gc_prepare_drop`. Dropping that owner
+    /// will release the memory of `CcBox<T>`.
     fn gc_mark_for_release(&mut self);
 }
 
 /// A dummy implementation without drop side-effects.
-pub(crate) struct RcDummy;
+pub(crate) struct CcDummy;
 
-impl RcDyn for RcDummy {
+impl CcDyn for CcDummy {
     fn gc_ref_count(&self) -> usize {
         1
     }
     fn gc_traverse(&self, _tracer: &mut Tracer) {}
-    fn gc_prepare_drop(&mut self) -> Box<dyn RcDyn> {
+    fn gc_prepare_drop(&mut self) -> Box<dyn CcDyn> {
         Box::new(Self)
     }
     fn gc_force_drop_without_release(&mut self) {}
     fn gc_mark_for_release(&mut self) {}
 }
 
-impl<T: Trace + 'static> Rc<T> {
-    pub fn new(value: T) -> Rc<T> {
-        let rc_box = RcBox {
+impl<T: Trace + 'static> Cc<T> {
+    pub fn new(value: T) -> Cc<T> {
+        let rc_box = CcBox {
             gc_header: std::ptr::null_mut(),
             ref_count: Cell::new(1),
             value: ManuallyDrop::new(value),
@@ -85,12 +85,12 @@ impl<T: Trace + 'static> Rc<T> {
     }
 
     #[inline]
-    fn inner(&self) -> &RcBox<T> {
+    fn inner(&self) -> &CcBox<T> {
         unsafe { self.0.as_ref() }
     }
 
     #[inline]
-    fn inner_mut(&mut self) -> &mut RcBox<T> {
+    fn inner_mut(&mut self) -> &mut CcBox<T> {
         unsafe { self.0.as_mut() }
     }
 
@@ -154,7 +154,7 @@ impl<T: Trace + 'static> Rc<T> {
     }
 }
 
-impl<T: Trace + 'static> Clone for Rc<T> {
+impl<T: Trace + 'static> Clone for Cc<T> {
     #[inline]
     fn clone(&self) -> Self {
         self.inc_ref();
@@ -162,7 +162,7 @@ impl<T: Trace + 'static> Clone for Rc<T> {
     }
 }
 
-impl<T: Trace + 'static> Deref for Rc<T> {
+impl<T: Trace + 'static> Deref for Cc<T> {
     type Target = T;
 
     #[inline]
@@ -171,20 +171,20 @@ impl<T: Trace + 'static> Deref for Rc<T> {
     }
 }
 
-impl<T: Trace + 'static> Drop for Rc<T> {
+impl<T: Trace + 'static> Drop for Cc<T> {
     fn drop(&mut self) {
         match self.ref_count() {
             1 => {
                 // ref_count will be 0. Drop and release memory.
                 debug_assert!(!self.is_tracked());
                 unsafe {
-                    let mut rc_box: Box<RcBox<T>> = Box::from_raw(self.0.as_mut());
+                    let mut rc_box: Box<CcBox<T>> = Box::from_raw(self.0.as_mut());
                     ManuallyDrop::drop(&mut rc_box.value);
                     drop(rc_box);
                 }
             }
             2 if self.is_tracked() => {
-                // ref_count will be 1, held by the RcDyn in GcHeader.
+                // ref_count will be 1, held by the CcDyn in GcHeader.
                 // Opt-out GC and ref_count will be 0.
                 self.dec_ref();
                 self.gc_untrack();
@@ -195,7 +195,7 @@ impl<T: Trace + 'static> Drop for Rc<T> {
             REF_COUNT_MARKED_FOR_FREE => {
                 // T was dropped by gc_force_drop_without_release.
                 // Just release the memory.
-                let rc_box: Box<RcBox<T>> = unsafe { Box::from_raw(self.0.as_mut()) };
+                let rc_box: Box<CcBox<T>> = unsafe { Box::from_raw(self.0.as_mut()) };
                 drop(rc_box);
             }
             0 => {
@@ -208,7 +208,7 @@ impl<T: Trace + 'static> Drop for Rc<T> {
     }
 }
 
-impl<T: Trace> RcDyn for Rc<T> {
+impl<T: Trace> CcDyn for Cc<T> {
     fn gc_ref_count(&self) -> usize {
         let mut count = self.inner().ref_count.get();
         if self.is_tracked() {
@@ -224,10 +224,10 @@ impl<T: Trace> RcDyn for Rc<T> {
         self.deref().trace(tracer)
     }
 
-    fn gc_prepare_drop(&mut self) -> Box<dyn RcDyn> {
+    fn gc_prepare_drop(&mut self) -> Box<dyn CcDyn> {
         debug_assert!(self.is_tracked());
         self.inner().ref_count.set(REF_COUNT_MARKED_FOR_DROP);
-        let mut result: Box<dyn RcDyn> = Box::new(RcDummy);
+        let mut result: Box<dyn CcDyn> = Box::new(CcDummy);
         std::mem::swap(&mut result, unsafe {
             &mut (*self.inner_mut().gc_header).value
         });
@@ -249,10 +249,10 @@ impl<T: Trace> RcDyn for Rc<T> {
     }
 }
 
-impl<T: Trace> Trace for Rc<T> {
+impl<T: Trace> Trace for Cc<T> {
     fn trace(&self, tracer: &mut Tracer) {
-        // For other non-`Rc<T>` container types, `trace` visit referents,
-        // is recursive, and does not call `tracer` directly. For `Rc<T>`,
+        // For other non-`Cc<T>` container types, `trace` visit referents,
+        // is recursive, and does not call `tracer` directly. For `Cc<T>`,
         // `trace` stops here, is non-recursive, and does apply `tracer`
         // to the actual `GcHeader`. It's expected that the upper layer
         // calls `gc_traverse` on everything (not just roots).

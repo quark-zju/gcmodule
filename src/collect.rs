@@ -1,6 +1,6 @@
+use crate::rc::Cc;
+use crate::rc::CcDyn;
 use crate::rc::GcHeader;
-use crate::rc::Rc;
-use crate::rc::RcDyn;
 use std::cell::RefCell;
 use std::ops::DerefMut;
 use std::pin::Pin;
@@ -22,7 +22,7 @@ fn new_gc_list() -> Pin<Box<GcHeader>> {
     let mut pinned = Box::pin(GcHeader {
         prev: std::ptr::null_mut(),
         next: std::ptr::null_mut(),
-        value: Box::new(Rc::new(())),
+        value: Box::new(Cc::new(())),
     });
     let header: &mut GcHeader = pinned.deref_mut();
     header.prev = header;
@@ -82,7 +82,7 @@ fn release_unreachable(list: *mut GcHeader) -> usize {
     });
 
     // Build a list about what to drop and release.
-    let mut to_drop: Vec<Box<dyn RcDyn>> = Vec::with_capacity(count);
+    let mut to_drop: Vec<Box<dyn CcDyn>> = Vec::with_capacity(count);
     visit_list(list, |header| {
         if is_unreachable(header) {
             to_drop.push(header.value.gc_prepare_drop());
@@ -92,13 +92,13 @@ fn release_unreachable(list: *mut GcHeader) -> usize {
     // Restore "prev" so "gc_untrack" can work.
     restore_prev(list);
 
-    // Call `T::drop`. Do not release `RcBox<T>` yet since `ref_count` is still
-    // needed for `RcBox<T>::drop`.
+    // Call `T::drop`. Do not release `CcBox<T>` yet since `ref_count` is still
+    // needed for `CcBox<T>::drop`.
     for value in to_drop.iter_mut() {
         value.gc_force_drop_without_release();
     }
 
-    // Release the memory of `RcBox<T>`.
+    // Release the memory of `CcBox<T>`.
     for mut value in to_drop {
         value.gc_mark_for_release();
         drop(value); // This will trigger the memory release.

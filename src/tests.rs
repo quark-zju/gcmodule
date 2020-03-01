@@ -14,7 +14,7 @@ fn test_simple_untracked() {
         }
     }
     {
-        let v1 = Rc::new(X("abc"));
+        let v1 = Cc::new(X("abc"));
         {
             let v2 = v1.clone();
             assert_eq!(v1.deref().0, v2.deref().0);
@@ -36,7 +36,7 @@ fn test_simple_tracked() {
         }
     }
     {
-        let v1 = Rc::new(X("abc"));
+        let v1 = Cc::new(X("abc"));
         {
             let v2 = v1.clone();
             assert_eq!(v1.deref().0, v2.deref().0);
@@ -50,8 +50,8 @@ fn test_simple_tracked() {
 fn test_simple_cycles() {
     assert_eq!(collect::collect_cycles(), 0);
     {
-        let a: Rc<RefCell<Vec<Box<dyn Trace>>>> = Rc::new(RefCell::new(Vec::new()));
-        let b: Rc<RefCell<Vec<Box<dyn Trace>>>> = Rc::new(RefCell::new(Vec::new()));
+        let a: Cc<RefCell<Vec<Box<dyn Trace>>>> = Cc::new(RefCell::new(Vec::new()));
+        let b: Cc<RefCell<Vec<Box<dyn Trace>>>> = Cc::new(RefCell::new(Vec::new()));
         assert_eq!(collect::collect_cycles(), 0);
         {
             let mut a = a.borrow_mut();
