@@ -1,5 +1,4 @@
 use crate::collect;
-use crate::rcdyn::RcDyn;
 use crate::trace::Trace;
 use std::cell::Cell;
 use std::ops::Deref;
@@ -20,6 +19,10 @@ struct RcBox<T: ?Sized> {
 }
 
 pub struct Rc<T: Trace + 'static>(NonNull<RcBox<T>>);
+
+/// Type-erased `Rc<T>` with interfaces needed by GC.
+pub trait RcDyn {
+}
 
 impl<T: Trace + 'static> Rc<T> {
     pub fn new(value: T) -> Rc<T> {
@@ -145,6 +148,9 @@ impl<T: Trace + 'static> Drop for Rc<T> {
             }
         }
     }
+}
+
+impl<T: Trace> RcDyn for Rc<T> {
 }
 
 #[cfg(test)]
