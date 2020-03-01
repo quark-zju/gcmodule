@@ -22,7 +22,7 @@ struct RcBox<T: ?Sized> {
 pub struct Rc<T: Trace + 'static>(NonNull<RcBox<T>>);
 
 /// Type-erased `Rc<T>` with interfaces needed by GC.
-pub trait RcDyn {
+pub(crate) trait RcDyn {
     /// Returns the reference count for cycle detection.
     fn gc_ref_count(&self) -> usize;
 
