@@ -1,6 +1,6 @@
-use crate::rcdyn::RcDyn;
+use crate::rc::GcHeader;
 
-pub type Tracer<'a> = dyn FnMut(&(dyn RcDyn + 'static)) + 'a;
+pub type Tracer<'a> = dyn FnMut(&mut GcHeader) + 'a;
 
 pub trait Trace {
     /// Traverse through objects referred by this value.

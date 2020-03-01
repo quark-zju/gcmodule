@@ -7,7 +7,7 @@ use std::ops::DerefMut;
 use std::pin::Pin;
 use std::ptr::NonNull;
 
-pub(crate) struct GcHeader {
+pub struct GcHeader {
     pub(crate) next: *mut GcHeader,
     pub(crate) prev: *mut GcHeader,
     pub(crate) value: Box<dyn RcDyn>,
