@@ -2,6 +2,7 @@ use crate::collect;
 use crate::trace::Trace;
 use crate::trace::Tracer;
 use std::cell::Cell;
+use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::pin::Pin;
@@ -16,7 +17,7 @@ pub struct GcHeader {
 struct RcBox<T: ?Sized> {
     pub(crate) gc_header: *mut GcHeader,
     pub(crate) ref_count: Cell<usize>,
-    value: T,
+    value: ManuallyDrop<T>,
 }
 
 pub struct Rc<T: Trace + 'static>(NonNull<RcBox<T>>);
@@ -35,7 +36,7 @@ impl<T: Trace + 'static> Rc<T> {
         let rc_box = RcBox {
             gc_header: std::ptr::null_mut(),
             ref_count: Cell::new(1),
-            value,
+            value: ManuallyDrop::new(value),
         };
         let ptr = Box::into_raw(Box::new(rc_box));
         let ptr = unsafe { NonNull::new_unchecked(ptr) };
@@ -139,26 +140,27 @@ impl<T: Trace + 'static> Deref for Rc<T> {
 
 impl<T: Trace + 'static> Drop for Rc<T> {
     fn drop(&mut self) {
-        debug_assert!(self.ref_count() > 0);
-        self.dec_ref();
         match self.ref_count() {
-            0 => {
+            1 => {
+                // ref_count will be 0. Drop and release memory.
                 debug_assert!(!self.is_tracked());
                 unsafe {
-                    let _drop = Box::from_raw(self.0.as_mut());
+                    let mut rc_box: Box<RcBox<T>> = Box::from_raw(self.0.as_mut());
+                    ManuallyDrop::drop(&mut rc_box.value);
+                    drop(rc_box);
                 }
             }
-            1 if self.is_tracked() => {
+            2 if self.is_tracked() => {
+                // ref_count will be 1, held by the RcDyn in GcHeader.
+                // Opt-out GC and ref_count will be 0.
+                self.dec_ref();
                 self.gc_untrack();
             }
+            0 => {
+                panic!("bug: ref_count should not be 0");
+            }
             _ => {
-                // Opt-in GC if this type is tracked.
-                if self.is_type_tracked() {
-                    collect::GC_LIST.with(|ref_head| {
-                        let mut head = ref_head.borrow_mut();
-                        self.gc_track(&mut head);
-                    });
-                }
+                self.dec_ref();
             }
         }
     }
