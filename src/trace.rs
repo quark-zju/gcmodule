@@ -16,4 +16,10 @@ pub trait Trace {
     fn is_type_tracked(&self) -> bool {
         true
     }
+
+    /// Name used for debugging purpose.
+    #[inline(never)]
+    fn debug_name(&self) -> &str {
+        "<unnamed>"
+    }
 }

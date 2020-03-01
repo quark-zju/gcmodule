@@ -1,4 +1,5 @@
 use crate::collect;
+use crate::debug;
 use crate::trace::Trace;
 use crate::trace::Tracer;
 use std::cell::Cell;
@@ -81,6 +82,7 @@ impl<T: Trace + 'static> Cc<T> {
                 result.gc_track(&mut head);
             });
         }
+        debug::log(|| (result.debug_name(), "new"));
         result
     }
 
@@ -124,6 +126,7 @@ impl<T: Trace + 'static> Cc<T> {
         if !self.is_tracked() {
             return;
         }
+        debug::log(|| (self.debug_name(), "untrack"));
         let inner = self.inner_mut();
         let mut gc_header = unsafe { Box::from_raw(inner.gc_header) };
         inner.gc_header = std::ptr::null_mut();
@@ -140,6 +143,7 @@ impl<T: Trace + 'static> Cc<T> {
         if self.is_tracked() {
             return;
         }
+        debug::log(|| (self.debug_name(), "track"));
         let cloned = self.clone();
         let mut inner = self.inner_mut();
         let next = prev.next;
@@ -158,6 +162,7 @@ impl<T: Trace + 'static> Clone for Cc<T> {
     #[inline]
     fn clone(&self) -> Self {
         self.inc_ref();
+        debug::log(|| (self.debug_name(), format!("clone ({})", self.ref_count())));
         Self(self.0)
     }
 }
@@ -177,6 +182,7 @@ impl<T: Trace + 'static> Drop for Cc<T> {
             1 => {
                 // ref_count will be 0. Drop and release memory.
                 debug_assert!(!self.is_tracked());
+                debug::log(|| (self.debug_name(), "drop (0)"));
                 unsafe {
                     let mut rc_box: Box<CcBox<T>> = Box::from_raw(self.0.as_mut());
                     ManuallyDrop::drop(&mut rc_box.value);
@@ -186,16 +192,19 @@ impl<T: Trace + 'static> Drop for Cc<T> {
             2 if self.is_tracked() => {
                 // ref_count will be 1, held by the CcDyn in GcHeader.
                 // Opt-out GC and ref_count will be 0.
+                debug::log(|| (self.debug_name(), "drop (1, tracked)"));
                 self.dec_ref();
                 self.gc_untrack();
             }
             REF_COUNT_MARKED_FOR_DROP => {
                 // Do nothing. Drop is being done by gc_force_drop_without_release().
+                debug::log(|| ("?", "drop (ignored)"));
             }
             REF_COUNT_MARKED_FOR_FREE => {
                 // T was dropped by gc_force_drop_without_release.
                 // Just release the memory.
                 let rc_box: Box<CcBox<T>> = unsafe { Box::from_raw(self.0.as_mut()) };
+                debug::log(|| ("?", "drop (release)"));
                 drop(rc_box);
             }
             0 => {
@@ -203,6 +212,7 @@ impl<T: Trace + 'static> Drop for Cc<T> {
             }
             _ => {
                 self.dec_ref();
+                debug::log(|| (self.debug_name(), format!("drop ({})", self.ref_count())));
             }
         }
     }
@@ -221,10 +231,12 @@ impl<T: Trace> CcDyn for Cc<T> {
     }
 
     fn gc_traverse(&self, tracer: &mut Tracer) {
+        debug::log(|| (self.debug_name(), "gc_traverse"));
         self.deref().trace(tracer)
     }
 
     fn gc_prepare_drop(&mut self) -> Box<dyn CcDyn> {
+        debug::log(|| (self.debug_name(), "gc_prepare_drop"));
         debug_assert!(self.is_tracked());
         self.inner().ref_count.set(REF_COUNT_MARKED_FOR_DROP);
         let mut result: Box<dyn CcDyn> = Box::new(CcDummy);
@@ -238,11 +250,13 @@ impl<T: Trace> CcDyn for Cc<T> {
         debug_assert!(self.is_tracked());
         debug_assert!(self.ref_count() == REF_COUNT_MARKED_FOR_DROP);
         self.gc_untrack();
+        debug::log(|| (self.debug_name(), "gc_force_drop"));
         let inner = self.inner_mut();
         unsafe { ManuallyDrop::drop(&mut inner.value) };
     }
 
     fn gc_mark_for_release(&mut self) {
+        debug::log(|| ("?", "gc_mark_for_release"));
         debug_assert!(!self.is_tracked());
         debug_assert!(self.ref_count() == REF_COUNT_MARKED_FOR_DROP);
         self.inner().ref_count.set(REF_COUNT_MARKED_FOR_FREE);
@@ -251,6 +265,7 @@ impl<T: Trace> CcDyn for Cc<T> {
 
 impl<T: Trace> Trace for Cc<T> {
     fn trace(&self, tracer: &mut Tracer) {
+        debug::log(|| (self.debug_name(), "trace"));
         // For other non-`Cc<T>` container types, `trace` visit referents,
         // is recursive, and does not call `tracer` directly. For `Cc<T>`,
         // `trace` stops here, is non-recursive, and does apply `tracer`
@@ -265,5 +280,9 @@ impl<T: Trace> Trace for Cc<T> {
 
     fn is_type_tracked(&self) -> bool {
         self.deref().is_type_tracked()
+    }
+
+    fn debug_name(&self) -> &str {
+        self.deref().debug_name()
     }
 }

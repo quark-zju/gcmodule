@@ -1,12 +1,14 @@
 use crate::cc::CcDummy;
 use crate::cc::CcDyn;
 use crate::cc::GcHeader;
+use crate::debug;
 use std::cell::RefCell;
 use std::ops::DerefMut;
 use std::pin::Pin;
 
 /// Collect cycles. Return the number of objects collected.
 pub fn collect_cycles() -> usize {
+    debug::log(|| ("collect", "collect_cycles"));
     GC_LIST.with(|list| {
         let list: *mut GcHeader = {
             let mut list = list.borrow_mut();
@@ -80,6 +82,8 @@ fn release_unreachable(list: *mut GcHeader) -> usize {
             count += 1;
         }
     });
+
+    debug::log(|| ("collect", format!("{} unreachable objects", count)));
 
     // Build a list about what to drop and release.
     let mut to_drop: Vec<Box<dyn CcDyn>> = Vec::with_capacity(count);
