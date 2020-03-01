@@ -1,0 +1,11 @@
+[package]
+name = "gcmodule"
+version = "0.1.0"
+authors = ["Jun Wu <quark@lihdd.net>"]
+edition = "2018"
+license = "MIT"
+description = "Garbage collection support inspired by Python's gc module."
+keywords = ["gc"]
+repository = "https://github.com/quark-zju/gcmodule"
+
+[dependencies]
