@@ -39,7 +39,15 @@ impl<T: Trace + 'static> Rc<T> {
         };
         let ptr = Box::into_raw(Box::new(rc_box));
         let ptr = unsafe { NonNull::new_unchecked(ptr) };
-        Self(ptr)
+        let mut result = Self(ptr);
+        // Opt-in GC if this type should be tracked.
+        if result.is_type_tracked() {
+            collect::GC_LIST.with(|ref_head| {
+                let mut head = ref_head.borrow_mut();
+                result.gc_track(&mut head);
+            });
+        }
+        result
     }
 
     #[inline]
