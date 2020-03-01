@@ -1,5 +1,6 @@
 use crate::collect;
 use crate::trace::Trace;
+use crate::trace::Tracer;
 use std::cell::Cell;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -169,6 +170,25 @@ impl<T: Trace> RcDyn for Rc<T> {
 
     fn gc_traverse(&self, tracer: &mut Tracer) {
         self.deref().trace(tracer)
+    }
+}
+
+impl<T: Trace> Trace for Rc<T> {
+    fn trace(&self, tracer: &mut Tracer) {
+        // For other non-`Rc<T>` container types, `trace` visit referents,
+        // is recursive, and does not call `tracer` directly. For `Rc<T>`,
+        // `trace` stops here, is non-recursive, and does apply `tracer`
+        // to the actual `GcHeader`. It's expected that the upper layer
+        // calls `gc_traverse` on everything (not just roots).
+        if self.is_tracked() {
+            if let Some(header) = unsafe { self.inner().gc_header.as_mut() } {
+                tracer(header);
+            }
+        }
+    }
+
+    fn is_type_tracked(&self) -> bool {
+        self.deref().is_type_tracked()
     }
 }
 
