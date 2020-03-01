@@ -14,7 +14,7 @@ pub(crate) struct GcHeader {
 }
 
 struct RcBox<T: ?Sized> {
-    pub(crate) gc_header: Option<Pin<Box<GcHeader>>>,
+    pub(crate) gc_header: *mut GcHeader,
     pub(crate) ref_count: Cell<usize>,
     value: T,
 }
@@ -24,7 +24,7 @@ pub struct Rc<T: Trace + 'static>(NonNull<RcBox<T>>);
 impl<T: Trace + 'static> Rc<T> {
     pub fn new(value: T) -> Rc<T> {
         let rc_box = RcBox {
-            gc_header: None,
+            gc_header: std::ptr::null_mut(),
             ref_count: Cell::new(1),
             value,
         };
@@ -60,7 +60,7 @@ impl<T: Trace + 'static> Rc<T> {
     #[inline]
     fn is_tracked(&self) -> bool {
         let inner = self.inner();
-        inner.gc_header.is_some()
+        !inner.gc_header.is_null()
     }
 
     #[inline]
@@ -74,9 +74,8 @@ impl<T: Trace + 'static> Rc<T> {
             return;
         }
         let inner = self.inner_mut();
-        let mut gc_header = None;
-        std::mem::swap(&mut gc_header, &mut inner.gc_header);
-        let mut gc_header = gc_header.unwrap();
+        let mut gc_header = unsafe { Box::from_raw(inner.gc_header) };
+        inner.gc_header = std::ptr::null_mut();
         debug_assert!(gc_header.value.is_some());
         debug_assert!(!gc_header.prev.is_null());
         debug_assert!(!gc_header.next.is_null());
@@ -94,15 +93,14 @@ impl<T: Trace + 'static> Rc<T> {
         let cloned = self.clone();
         let mut inner = self.inner_mut();
         let next = prev.next;
-        let header = Box::pin(GcHeader {
+        let header = Box::new(GcHeader {
             prev: prev.deref_mut(),
             next,
             value: Some(Box::new(cloned)),
         });
-        inner.gc_header = Some(header);
-        // FIXME: Set prev, next accordingly.
-        // unsafe { next.as_mut() }.unwrap().prev = inner.gc_header;
-        // prev.next = inner.gc_header;
+        inner.gc_header = Box::into_raw(header);
+        unsafe { next.as_mut() }.unwrap().prev = inner.gc_header;
+        prev.next = inner.gc_header;
     }
 }
 
@@ -129,12 +127,12 @@ impl<T: Trace + 'static> Drop for Rc<T> {
         self.dec_ref();
         match self.ref_count() {
             0 => {
-                debug_assert!(self.inner().gc_header.is_none());
+                debug_assert!(!self.is_tracked());
                 unsafe {
                     let _drop = Box::from_raw(self.0.as_mut());
                 }
             }
-            1 if self.inner().gc_header.is_some() => {
+            1 if self.is_tracked() => {
                 self.gc_untrack();
             }
             _ => {
