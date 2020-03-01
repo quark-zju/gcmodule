@@ -1,4 +1,5 @@
 use crate::rc::GcHeader;
+use crate::rc::Rc;
 use std::cell::RefCell;
 use std::ops::DerefMut;
 use std::pin::Pin;
@@ -9,7 +10,7 @@ fn new_gc_list() -> Pin<Box<GcHeader>> {
     let mut pinned = Box::pin(GcHeader {
         prev: std::ptr::null_mut(),
         next: std::ptr::null_mut(),
-        value: None,
+        value: Box::new(Rc::new(())),
     });
     let header: &mut GcHeader = pinned.deref_mut();
     header.prev = header;

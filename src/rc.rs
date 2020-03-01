@@ -10,7 +10,7 @@ use std::ptr::NonNull;
 pub(crate) struct GcHeader {
     pub(crate) next: *mut GcHeader,
     pub(crate) prev: *mut GcHeader,
-    pub(crate) value: Option<Box<dyn RcDyn>>,
+    pub(crate) value: Box<dyn RcDyn>,
 }
 
 struct RcBox<T: ?Sized> {
@@ -76,7 +76,6 @@ impl<T: Trace + 'static> Rc<T> {
         let inner = self.inner_mut();
         let mut gc_header = unsafe { Box::from_raw(inner.gc_header) };
         inner.gc_header = std::ptr::null_mut();
-        debug_assert!(gc_header.value.is_some());
         debug_assert!(!gc_header.prev.is_null());
         debug_assert!(!gc_header.next.is_null());
         unsafe {
@@ -96,7 +95,7 @@ impl<T: Trace + 'static> Rc<T> {
         let header = Box::new(GcHeader {
             prev: prev.deref_mut(),
             next,
-            value: Some(Box::new(cloned)),
+            value: Box::new(cloned),
         });
         inner.gc_header = Box::into_raw(header);
         unsafe { next.as_mut() }.unwrap().prev = inner.gc_header;
