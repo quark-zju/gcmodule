@@ -99,6 +99,28 @@ impl<T: Trace> Cc<T> {
         debug::log(|| (result.debug_name(), "new"));
         result
     }
+
+    /// Convert to `Cc<dyn Trace>`.
+    pub fn into_dyn(self) -> Cc<dyn Trace> {
+        #[cfg(feature = "nightly")]
+        {
+            // Requires CoerceUnsized, which is currently unstable.
+            self
+        }
+        #[cfg(not(feature = "nightly"))]
+        {
+            // XXX: This depends on rust internals. But it works on stable.
+            // Replace this with CoerceUnsized once that becomes stable.
+            // Cc<dyn Trace> has 2 usize values: The first one is the same
+            // as Cc<T>. The second one is the vtable. The vtable pointer
+            // is the same as the second pointer of `&dyn Trace`.
+            use std::mem::transmute;
+            let mut fat_ptr: [usize; 2] = unsafe { transmute(self.deref() as &dyn Trace) };
+            let self_ptr: usize = unsafe { transmute(self) };
+            fat_ptr[0] = self_ptr;
+            unsafe { transmute(fat_ptr) }
+        }
+    }
 }
 
 impl<T: ?Sized> Cc<T> {
@@ -313,6 +335,13 @@ impl<T: Trace + ?Sized> Trace for Cc<T> {
 
     fn as_any(&self) -> Option<&dyn Any> {
         T::as_any(self.deref())
+    }
+}
+
+impl Cc<dyn Trace> {
+    /// Attempt to downcast to the specified type.
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+        self.deref().as_any().and_then(|any| any.downcast_ref())
     }
 }
 
