@@ -8,7 +8,7 @@ mod trace;
 mod trace_impls;
 
 pub use cc::Cc;
-pub use collect::collect_cycles;
+pub use collect::collect_thread_cycles;
 pub use trace::{Trace, Tracer};
 
 #[cfg(not(test))]

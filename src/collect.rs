@@ -6,9 +6,10 @@ use std::cell::RefCell;
 use std::ops::DerefMut;
 use std::pin::Pin;
 
-/// Collect cycles. Return the number of objects collected.
-pub fn collect_cycles() -> usize {
-    debug::log(|| ("collect", "collect_cycles"));
+/// Collect cyclic garbage in the current thread.
+/// Return the number of objects collected.
+pub fn collect_thread_cycles() -> usize {
+    debug::log(|| ("collect", "collect_thread_cycles"));
     GC_LIST.with(|list| {
         let list: *mut GcHeader = {
             let mut list = list.borrow_mut();

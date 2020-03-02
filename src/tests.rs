@@ -50,11 +50,11 @@ fn test_simple_tracked() {
 
 #[test]
 fn test_simple_cycles() {
-    assert_eq!(collect::collect_cycles(), 0);
+    assert_eq!(collect::collect_thread_cycles(), 0);
     {
         let a: Cc<RefCell<Vec<Box<dyn Trace>>>> = Cc::new(RefCell::new(Vec::new()));
         let b: Cc<RefCell<Vec<Box<dyn Trace>>>> = Cc::new(RefCell::new(Vec::new()));
-        assert_eq!(collect::collect_cycles(), 0);
+        assert_eq!(collect::collect_thread_cycles(), 0);
         {
             let mut a = a.borrow_mut();
             a.push(Box::new(b.clone()));
@@ -63,9 +63,9 @@ fn test_simple_cycles() {
             let mut b = b.borrow_mut();
             b.push(Box::new(a.clone()));
         }
-        assert_eq!(collect::collect_cycles(), 0);
+        assert_eq!(collect::collect_thread_cycles(), 0);
     }
-    assert_eq!(collect::collect_cycles(), 2);
+    assert_eq!(collect::collect_thread_cycles(), 2);
 }
 
 /// Track count of drop().
@@ -106,7 +106,7 @@ fn test_small_graph(n: usize, edges: &[u8]) {
         }
     }
     let drop_count_now = drop_count.load(SeqCst);
-    assert_eq!(collect::collect_cycles(), n - drop_count_now);
+    assert_eq!(collect::collect_thread_cycles(), n - drop_count_now);
     assert_eq!(drop_count.load(SeqCst), n);
 }
 
@@ -122,7 +122,7 @@ fn test_drop_by_ref_count() {
 0: drop (1, tracked), untrack, drop (0)
 1: drop (1, tracked), untrack, drop (0)
 2: drop (1, tracked), untrack, drop (0)
-collect: collect_cycles, 0 unreachable objects"#
+collect: collect_thread_cycles, 0 unreachable objects"#
     );
 }
 
@@ -133,7 +133,7 @@ fn test_self_referential() {
         log,
         r#"
 0: track, clone (2), new, clone (3), clone (4), clone (5), drop (4)
-collect: collect_cycles
+collect: collect_thread_cycles
 0: gc_traverse, trace, trace, trace
 collect: 1 unreachable objects
 0: gc_prepare_drop, untrack, gc_force_drop
@@ -157,7 +157,7 @@ fn test_3_object_cycle() {
 0: drop (2)
 1: drop (2)
 2: drop (2)
-collect: collect_cycles
+collect: collect_thread_cycles
 2: gc_traverse
 1: trace, gc_traverse
 0: trace, gc_traverse
@@ -190,7 +190,7 @@ fn test_2_object_cycle_with_another_incoming_reference() {
 0: drop (2)
 1: drop (2)
 2: drop (2)
-collect: collect_cycles
+collect: collect_thread_cycles
 2: gc_traverse
 0: trace
 1: gc_traverse
@@ -224,7 +224,7 @@ fn test_2_object_cycle_with_another_outgoing_reference() {
 1: drop (1, tracked), untrack, drop (0)
 0: drop (2)
 2: drop (2)
-collect: collect_cycles
+collect: collect_thread_cycles
 2: gc_traverse
 0: trace, gc_traverse
 2: trace
