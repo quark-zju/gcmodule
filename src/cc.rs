@@ -13,6 +13,9 @@ use std::ptr::NonNull;
 pub struct GcHeader {
     pub(crate) next: *mut GcHeader,
     pub(crate) prev: *mut GcHeader,
+
+    // NOTE: `value` is mainly for type erasure. Is there a way to avoid `value`
+    // to reduce memory footprint without hurting performance?
     pub(crate) value: Box<dyn CcDyn>,
 }
 

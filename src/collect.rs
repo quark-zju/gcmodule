@@ -2,6 +2,8 @@
 //
 // [1]: https://github.com/python/cpython/blob/v3.8.0/Modules/gcmodule.c
 
+// NOTE: Consider adding generation support if necessary. It won't be too hard.
+
 use crate::cc::CcDummy;
 use crate::cc::CcDyn;
 use crate::cc::GcHeader;
