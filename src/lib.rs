@@ -94,6 +94,8 @@ mod collect;
 mod debug;
 #[cfg(test)]
 mod tests;
+#[cfg(any(test, feature = "testutil"))]
+pub mod testutil;
 mod trace;
 mod trace_impls;
 

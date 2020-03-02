@@ -15,3 +15,4 @@ quickcheck = "0.9"
 
 [features]
 nightly = []
+testutil = []
