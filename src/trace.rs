@@ -30,7 +30,7 @@ pub trait Trace: 'static {
 
     /// Provide downcast support.
     ///
-    /// Types that wants downcast support should implement this method like:
+    /// Types that want downcast support should implement this method like:
     /// `fn as_any(&self) -> Option<&dyn std::any::Any> { Some(self) }`
     fn as_any(&self) -> Option<&dyn Any> {
         None
