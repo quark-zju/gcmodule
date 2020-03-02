@@ -27,8 +27,9 @@
 //! use gcmodule::{Cc, Trace};
 //! use std::cell::RefCell;
 //! {
-//!     let a: Cc<RefCell<Vec<Box<dyn Trace>>>> = Cc::new(Default::default());
-//!     let b: Cc<RefCell<Vec<Box<dyn Trace>>>> = Cc::new(Default::default());
+//!     type List = Cc<RefCell<Vec<Box<dyn Trace>>>>;
+//!     let a: List = Default::default();
+//!     let b: List = Default::default();
 //!     a.borrow_mut().push(Box::new(b.clone()));
 //!     b.borrow_mut().push(Box::new(a.clone()));
 //! }
