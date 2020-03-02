@@ -1,4 +1,5 @@
 use crate::trace::{Trace, Tracer};
+use std::any::Any;
 
 /// Mark types as "untracked". Untracked types opt-out the cycle collector.
 ///
@@ -8,34 +9,24 @@ use crate::trace::{Trace, Tracer};
 #[macro_export]
 macro_rules! untrack {
     ( <$( $g: tt ),*> $( $t: tt )* ) => {
-            impl<$( $g ),*> $crate::Trace for $($t)* {
+            impl<$( $g: 'static ),*> $crate::Trace for $($t)* {
                 fn is_type_tracked(&self) -> bool { false }
+                fn as_any(&self) -> Option<&dyn std::any::Any> { Some(self) }
             }
     };
     ( $( $t: ty ),* ) => {
         $(
             impl $crate::Trace for $t {
                 fn is_type_tracked(&self) -> bool { false }
+                fn as_any(&self) -> Option<&dyn std::any::Any> { Some(self) }
             }
         )*
     };
 }
 
-untrack!(bool, char, f32, f64, i16, i32, i64, i8, isize, str, u16, u32, u64, u8, usize);
+untrack!(bool, char, f32, f64, i16, i32, i64, i8, isize, u16, u32, u64, u8, usize);
 untrack!(());
 untrack!(String, &'static str);
-
-mod slice {
-    use super::*;
-
-    impl<'a, T: Trace> Trace for &'a mut [T] {
-        fn trace(&self, tracer: &mut Tracer) {
-            for t in &self[..] {
-                t.trace(tracer);
-            }
-        }
-    }
-}
 
 mod boxed {
     use super::*;
@@ -44,19 +35,28 @@ mod boxed {
         fn trace(&self, tracer: &mut Tracer) {
             (**self).trace(tracer);
         }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
     }
 }
+
 mod cell {
     use super::*;
     use std::cell;
 
-    impl<T: Copy + Trace + ?Sized> Trace for cell::Cell<T> {
+    impl<T: Copy + Trace> Trace for cell::Cell<T> {
         fn trace(&self, tracer: &mut Tracer) {
             self.get().trace(tracer);
         }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
     }
 
-    impl<T: Trace + ?Sized> Trace for cell::RefCell<T> {
+    impl<T: Trace> Trace for cell::RefCell<T> {
         fn trace(&self, tracer: &mut Tracer) {
             // If the RefCell is currently borrowed we
             // assume there's an outstanding reference to this
@@ -67,6 +67,10 @@ mod cell {
                 x.trace(tracer);
             }
         }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
     }
 }
 
@@ -75,11 +79,15 @@ mod collections {
     use std::collections;
     use std::hash;
 
-    impl<K, V: Trace> Trace for collections::BTreeMap<K, V> {
+    impl<K: 'static, V: Trace> Trace for collections::BTreeMap<K, V> {
         fn trace(&self, tracer: &mut Tracer) {
             for (_, v) in self {
                 v.trace(tracer);
             }
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
         }
     }
 
@@ -89,6 +97,10 @@ mod collections {
                 v.trace(tracer);
             }
         }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
     }
 
     impl<T: Trace> Trace for collections::LinkedList<T> {
@@ -97,6 +109,10 @@ mod collections {
                 t.trace(tracer);
             }
         }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
     }
 
     impl<T: Trace> Trace for collections::VecDeque<T> {
@@ -104,6 +120,10 @@ mod collections {
             for t in self {
                 t.trace(tracer);
             }
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
         }
     }
 }
@@ -115,6 +135,10 @@ mod vec {
             for t in self {
                 t.trace(tracer);
             }
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
         }
     }
 }
@@ -132,13 +156,7 @@ mod func {
 mod ffi {
     use std::ffi;
 
-    untrack!(
-        ffi::CStr,
-        ffi::CString,
-        ffi::NulError,
-        ffi::OsStr,
-        ffi::OsString
-    );
+    untrack!(ffi::CString, ffi::NulError, ffi::OsString);
 }
 
 mod net {
@@ -165,13 +183,17 @@ mod option {
                 t.trace(tracer);
             }
         }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
     }
 }
 
 mod path {
     use std::path;
 
-    untrack!(path::Path, path::PathBuf);
+    untrack!(path::PathBuf);
 }
 
 mod process {
@@ -205,6 +227,10 @@ mod result {
                 Ok(ref t) => t.trace(tracer),
                 Err(ref u) => u.trace(tracer),
             }
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
         }
     }
 }

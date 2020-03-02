@@ -2,6 +2,7 @@ use crate::collect;
 use crate::debug;
 use crate::trace::Trace;
 use crate::trace::Tracer;
+use std::any::Any;
 use std::cell::Cell;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
@@ -75,7 +76,7 @@ impl CcDyn for CcDummy {
     fn gc_mark_for_release(&mut self) {}
 }
 
-impl<T: Trace + 'static> Cc<T> {
+impl<T: Trace> Cc<T> {
     /// Constructs a new [`Cc<T>`](struct.Cc.html).
     pub fn new(value: T) -> Cc<T> {
         let rc_box = CcBox {
@@ -166,7 +167,7 @@ impl<T> Cc<T> {
     }
 }
 
-impl<T: Trace + 'static> Cc<T> {
+impl<T: Trace> Cc<T> {
     fn gc_track(&mut self, prev: &mut Pin<Box<GcHeader>>) {
         if self.is_tracked() {
             return;
@@ -307,6 +308,10 @@ impl<T: Trace> Trace for Cc<T> {
     }
 
     fn is_type_tracked(&self) -> bool {
-        self.deref().is_type_tracked()
+        T::is_type_tracked(self.deref())
+    }
+
+    fn as_any(&self) -> Option<&dyn Any> {
+        T::as_any(self.deref())
     }
 }

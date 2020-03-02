@@ -1,11 +1,12 @@
 use crate::cc::GcHeader;
+use std::any::Any;
 
 /// Callback function that serves as the parameter of
 /// [`Trace::trace`](trait.Trace.html#method.trace).
 pub type Tracer<'a> = dyn FnMut(&mut GcHeader) + 'a;
 
 /// Defines how the cycle collector should collect a type.
-pub trait Trace {
+pub trait Trace: 'static {
     /// Traverse through values referred by this value.
     ///
     /// For example, if `self.x` is a value referred by `self`,
@@ -25,5 +26,13 @@ pub trait Trace {
     /// See https://doc.rust-lang.org/error-index.html#E0038.
     fn is_type_tracked(&self) -> bool {
         true
+    }
+
+    /// Provide downcast support.
+    ///
+    /// Types that wants downcast support should implement this method like:
+    /// `fn as_any(&self) -> Option<&dyn std::any::Any> { Some(self) }`
+    fn as_any(&self) -> Option<&dyn Any> {
+        None
     }
 }
