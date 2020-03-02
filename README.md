@@ -2,7 +2,7 @@
 
 [![Documentation](https://docs.rs/gcmodule/badge.svg)](https://docs.rs/gcmodule)
 [![crates.io](http://meritbadge.herokuapp.com/gcmodule)](https://crates.io/crates/gcmodule)
-![Build Status](https://github.com/quark-zju/gcmodule/workflows/Build/badge.svg)
+![Build Status](https://github.com/quark-zju/gcmodule/workflows/build/badge.svg)
 
 Garbage collection inspired by [CPython](https://github.com/python/cpython/)'s implementation.
 
