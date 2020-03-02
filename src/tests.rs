@@ -314,6 +314,12 @@ collect: 1 unreachable objects
     )
 }
 
+#[cfg(feature = "nightly")]
+#[test]
+fn test_unsize_coerce() {
+    let _v: Cc<dyn Trace> = Cc::new(vec![1u8, 2, 3]);
+}
+
 quickcheck! {
     fn test_quickcheck_16_vertex_graph(edges: Vec<u8>, atomic_bits: u16) -> bool {
         test_small_graph(2, &edges, atomic_bits);

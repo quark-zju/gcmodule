@@ -12,3 +12,6 @@ readme = "README.md"
 
 [dev-dependencies]
 quickcheck = "0.9"
+
+[features]
+nightly = []

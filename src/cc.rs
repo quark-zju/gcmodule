@@ -315,3 +315,6 @@ impl<T: Trace + ?Sized> Trace for Cc<T> {
         T::as_any(self.deref())
     }
 }
+
+#[cfg(feature = "nightly")]
+impl<T: ?Sized + std::marker::Unsize<U>, U: ?Sized> std::ops::CoerceUnsized<Cc<U>> for Cc<T> {}
