@@ -26,11 +26,4 @@ pub trait Trace {
     fn is_type_tracked(&self) -> bool {
         true
     }
-
-    #[doc(hidden)]
-    #[inline(never)]
-    /// Name used for debugging purpose.
-    fn debug_name(&self) -> &str {
-        "<unnamed>"
-    }
 }

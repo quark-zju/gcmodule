@@ -7,6 +7,7 @@ use std::ops::DerefMut;
 thread_local!(pub(crate) static LOG: RefCell<String> = Default::default());
 thread_local!(pub(crate) static LAST_NAME: RefCell<String> = Default::default());
 thread_local!(pub(crate) static ENABLED: Cell<bool> = Default::default());
+thread_local!(pub(crate) static NEXT_DEBUG_NAME: Cell<usize> = Default::default());
 
 /// Enable debug log for the given scope. Return the debug log.
 pub(crate) fn capture_log(mut func: impl FnMut()) -> String {

@@ -19,6 +19,8 @@ pub struct GcHeader {
 struct CcBox<T: ?Sized> {
     pub(crate) gc_header: *mut GcHeader,
     pub(crate) ref_count: Cell<usize>,
+    #[cfg(test)]
+    pub(crate) name: String,
     value: ManuallyDrop<T>,
 }
 
@@ -77,6 +79,8 @@ impl<T: Trace + 'static> Cc<T> {
             gc_header: std::ptr::null_mut(),
             ref_count: Cell::new(1),
             value: ManuallyDrop::new(value),
+            #[cfg(test)]
+            name: debug::NEXT_DEBUG_NAME.with(|n| n.get().to_string()),
         };
         let ptr = Box::into_raw(Box::new(rc_box));
         let ptr = unsafe { NonNull::new_unchecked(ptr) };
@@ -143,6 +147,17 @@ impl<T: Trace + 'static> Cc<T> {
             (*(gc_header.next)).prev = gc_header.prev;
         }
         // triggers 'drop()'
+    }
+
+    pub(crate) fn debug_name(&self) -> &str {
+        #[cfg(test)]
+        {
+            &self.inner().name
+        }
+        #[cfg(not(test))]
+        {
+            unreachable!()
+        }
     }
 
     fn gc_track(&mut self, prev: &mut Pin<Box<GcHeader>>) {
@@ -286,9 +301,5 @@ impl<T: Trace> Trace for Cc<T> {
 
     fn is_type_tracked(&self) -> bool {
         self.deref().is_type_tracked()
-    }
-
-    fn debug_name(&self) -> &str {
-        self.deref().debug_name()
     }
 }

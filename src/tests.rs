@@ -69,13 +69,10 @@ fn test_simple_cycles() {
 }
 
 /// Track count of drop().
-struct DropCounter<T>(T, Arc<AtomicUsize>, String);
+struct DropCounter<T>(T, Arc<AtomicUsize>);
 impl<T: Trace> Trace for DropCounter<T> {
     fn trace(&self, tracer: &mut Tracer) {
         self.0.trace(tracer);
-    }
-    fn debug_name(&self) -> &str {
-        &self.2
     }
 }
 impl<T> Drop for DropCounter<T> {
@@ -91,11 +88,8 @@ fn test_small_graph(n: usize, edges: &[u8]) {
     {
         let values: Vec<Cc<DropCounter<RefCell<Vec<Box<dyn Trace>>>>>> = (0..n)
             .map(|i| {
-                Cc::new(DropCounter(
-                    RefCell::new(Vec::new()),
-                    drop_count.clone(),
-                    format!("{}", i),
-                ))
+                debug::NEXT_DEBUG_NAME.with(|n| n.set(i));
+                Cc::new(DropCounter(RefCell::new(Vec::new()), drop_count.clone()))
             })
             .collect();
         for &edge in edges {
