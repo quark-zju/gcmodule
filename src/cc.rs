@@ -322,10 +322,8 @@ impl<T: Trace + ?Sized> Trace for Cc<T> {
         // `trace` stops here, is non-recursive, and does apply `tracer`
         // to the actual `GcHeader`. It's expected that the upper layer
         // calls `gc_traverse` on everything (not just roots).
-        if self.is_tracked() {
-            if let Some(header) = unsafe { self.inner().gc_header.as_mut() } {
-                tracer(header);
-            }
+        if let Some(header) = unsafe { self.inner().gc_header.as_mut() } {
+            tracer(header);
         }
     }
 
