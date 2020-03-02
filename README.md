@@ -34,7 +34,7 @@ gcmodule::collect_thread_cycles(); // Internal values are dropped.
 - Both are single-threaded, and stop-the-world.
 - Main APIs like `Cc<T>` and `Trace` are similar, or even compatible.
 - `gcmodule` is conceptually simpler. There is no need for the "colors" concept.
-- `gcmodule` requires manual collection to release GC metadata (but not the tracked object) even if the reference count logically drops to 0. See [this commit message](https://github.com/quark-zju/gcmodule/commit/b825bc45ac008e26ada3c13daa3efa34334f8273) for some details.
+- `bacon-rajan-cc` requires manual collection to release GC metadata (but not the tracked object) even if the reference count logically drops to 0. See [this commit message](https://github.com/quark-zju/gcmodule/commit/b825bc45ac008e26ada3c13daa3efa34334f8273) for some details.
 
 ### [rcgc](https://github.com/jonas-schievink/rcgc) v0.1
 
