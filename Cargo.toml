@@ -4,9 +4,11 @@ version = "0.1.0"
 authors = ["Jun Wu <quark@lihdd.net>"]
 edition = "2018"
 license = "MIT"
-description = "Garbage collection support inspired by Python's gc module."
-keywords = ["gc"]
+description = "Cyclic garbage collection inspired by CPython's gc implementation."
+keywords = ["gc", "garbage", "collection", "cycle", "rc", "collector"]
 repository = "https://github.com/quark-zju/gcmodule"
+categories = ["memory-management"]
+readme = "README.md"
 
 [dev-dependencies]
 quickcheck = "0.9"
