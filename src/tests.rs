@@ -88,7 +88,10 @@ impl<T> Drop for DropCounter<T> {
 ///
 /// `atomic_bits` is a bit mask. If the i-th bit is set, then the i-th vertex
 /// opts out cycle collector.
-fn test_small_graph(n: usize, edges: &[u8], atomic_bits: u16) {
+///
+/// `collect_bits` is a bit mask. If the i-th bit is set, then try to collect
+/// after dropping the i-th value.
+fn test_small_graph(n: usize, edges: &[u8], atomic_bits: u16, collect_bits: u16) {
     assert!(n <= 16);
     let is_tracked = |n| -> bool { (atomic_bits >> n) & 1 == 0 };
     let drop_count: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
@@ -125,6 +128,11 @@ fn test_small_graph(n: usize, edges: &[u8], atomic_bits: u16) {
             to.push(Box::new(values[from_index].clone()));
             edge_descs[to_index].push(from_index);
         }
+        for (i, _value) in values.into_iter().enumerate() {
+            if ((collect_bits >> i) & 1) != 0 {
+                collect::collect_thread_cycles();
+            }
+        }
     }
     let old_dropped = drop_count.load(SeqCst);
     let collected = collect::collect_thread_cycles();
@@ -149,7 +157,7 @@ fn test_small_graph(n: usize, edges: &[u8], atomic_bits: u16) {
 
 #[test]
 fn test_drop_by_ref_count() {
-    let log = debug::capture_log(|| test_small_graph(3, &[], 0));
+    let log = debug::capture_log(|| test_small_graph(3, &[], 0, 0));
     assert_eq!(
         log,
         r#"
@@ -165,7 +173,7 @@ collect: collect_thread_cycles, 0 unreachable objects"#
 
 #[test]
 fn test_self_referential() {
-    let log = debug::capture_log(|| test_small_graph(1, &[0x00, 0x00, 0x00], 0));
+    let log = debug::capture_log(|| test_small_graph(1, &[0x00, 0x00, 0x00], 0, 0));
     assert_eq!(
         log,
         r#"
@@ -181,7 +189,7 @@ collect: 1 unreachable objects
 #[test]
 fn test_3_object_cycle() {
     // 0 -> 1 -> 2 -> 0
-    let log = debug::capture_log(|| test_small_graph(3, &[0x01, 0x12, 0x20], 0));
+    let log = debug::capture_log(|| test_small_graph(3, &[0x01, 0x12, 0x20], 0, 0));
     assert_eq!(
         log,
         r#"
@@ -214,7 +222,7 @@ collect: 3 unreachable objects
 
 #[test]
 fn test_2_object_cycle_with_another_incoming_reference() {
-    let log = debug::capture_log(|| test_small_graph(3, &[0x02, 0x20, 0x10], 0));
+    let log = debug::capture_log(|| test_small_graph(3, &[0x02, 0x20, 0x10], 0, 0));
     assert_eq!(
         log,
         r#"
@@ -248,7 +256,7 @@ collect: 3 unreachable objects
 
 #[test]
 fn test_2_object_cycle_with_another_outgoing_reference() {
-    let log = debug::capture_log(|| test_small_graph(3, &[0x02, 0x20, 0x01], 0));
+    let log = debug::capture_log(|| test_small_graph(3, &[0x02, 0x20, 0x01], 0, 0));
     assert_eq!(
         log,
         r#"
@@ -278,7 +286,7 @@ collect: 2 unreachable objects
 /// Mixed tracked and untracked values.
 #[test]
 fn test_simple_mixed_graph() {
-    let log = debug::capture_log(|| test_small_graph(2, &[0, 0x00], 0b10));
+    let log = debug::capture_log(|| test_small_graph(2, &[0, 0x00], 0b10, 0));
     assert_eq!(
         log,
         r#"
@@ -293,7 +301,7 @@ collect: 1 unreachable objects
 ?: drop (ignored), drop (ignored), gc_mark_for_release, drop (release)"#
     );
 
-    let log = debug::capture_log(|| test_small_graph(2, &[0, 0x10], 0b10));
+    let log = debug::capture_log(|| test_small_graph(2, &[0, 0x10], 0b10, 0));
     assert_eq!(
         log,
         r#"
@@ -315,6 +323,36 @@ collect: 1 unreachable objects
 }
 
 #[test]
+fn test_collect_multi_times() {
+    // Keep 0, 1. 1: [0]; Drop 0, then Drop 1.
+    let edges = [0x01];
+    let log = debug::capture_log(|| test_small_graph(2, &edges, 0, 3));
+    assert_eq!(
+        log,
+        r#"
+0: track, clone (2), new
+1: track, clone (2), new
+0: clone (3)
+collect: collect_thread_cycles
+1: gc_traverse
+0: trace, gc_traverse
+1: gc_traverse
+0: trace, gc_traverse
+collect: 0 unreachable objects
+0: drop (2)
+collect: collect_thread_cycles
+1: gc_traverse
+0: trace, gc_traverse
+1: gc_traverse
+0: trace, gc_traverse
+collect: 0 unreachable objects
+1: drop (1, tracked), untrack, drop (0)
+0: drop (1, tracked), untrack, drop (0)
+collect: collect_thread_cycles, 0 unreachable objects"#
+    );
+}
+
+#[test]
 fn test_dyn_downcast() {
     let v: Cc<dyn Trace> = Cc::new(vec![1u8, 2, 3]).into_dyn();
     let downcasted: &Vec<u8> = v.downcast_ref().unwrap();
@@ -328,8 +366,8 @@ fn test_unsize_coerce() {
 }
 
 quickcheck! {
-    fn test_quickcheck_16_vertex_graph(edges: Vec<u8>, atomic_bits: u16) -> bool {
-        test_small_graph(2, &edges, atomic_bits);
+    fn test_quickcheck_16_vertex_graph(edges: Vec<u8>, atomic_bits: u16, collect_bits: u16) -> bool {
+        test_small_graph(16, &edges, atomic_bits, collect_bits);
         true
     }
 }
