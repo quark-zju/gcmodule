@@ -1,0 +1,21 @@
+
+[package]
+name = "gcmodule-fuzz"
+version = "0.0.0"
+authors = ["Jun Wu <quark@lihdd.net>"]
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.3"
+
+[dependencies.gcmodule]
+path = ".."
+features = ["testutil"]
+
+[[bin]]
+name = "graph16"
+path = "fuzz_targets/graph16.rs"

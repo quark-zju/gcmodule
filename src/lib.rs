@@ -105,5 +105,7 @@ pub use trace::{Trace, Tracer};
 
 #[cfg(not(test))]
 mod debug {
+    use std::cell::Cell;
+    thread_local!(pub(crate) static NEXT_DEBUG_NAME: Cell<usize> = Default::default());
     pub(crate) fn log<S1: ToString, S2: ToString>(_func: impl Fn() -> (S1, S2)) {}
 }
