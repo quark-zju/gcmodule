@@ -11,7 +11,7 @@ categories = ["memory-management"]
 readme = "README.md"
 
 [dev-dependencies]
-quickcheck = "0.9"
+quickcheck = { version = "0.9", default-features = false }
 
 [features]
 nightly = []
