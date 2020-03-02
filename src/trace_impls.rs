@@ -1,16 +1,20 @@
 use crate::trace::{Trace, Tracer};
 
 /// Mark types as "untracked". Untracked types opt-out the cycle collector.
+///
+/// This is done by implementing [`Trace`](trait.Trace.html) with
+/// [`is_type_tracked`](trait.Trace.html#method.is_type_tracked) returning
+/// `false`.
 #[macro_export]
 macro_rules! untrack {
     ( <$( $g: tt ),*> $( $t: tt )* ) => {
-            impl<$( $g ),*> $crate::trace::Trace for $($t)* {
+            impl<$( $g ),*> $crate::Trace for $($t)* {
                 fn is_type_tracked(&self) -> bool { false }
             }
     };
     ( $( $t: ty ),* ) => {
         $(
-            impl $crate::trace::Trace for $t {
+            impl $crate::Trace for $t {
                 fn is_type_tracked(&self) -> bool { false }
             }
         )*

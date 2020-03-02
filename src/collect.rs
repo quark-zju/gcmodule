@@ -1,3 +1,7 @@
+// The main idea comes from cpython 3.8's `gcmodule.c` [1].
+//
+// [1]: https://github.com/python/cpython/blob/v3.8.0/Modules/gcmodule.c
+
 use crate::cc::CcDummy;
 use crate::cc::CcDyn;
 use crate::cc::GcHeader;
@@ -21,6 +25,7 @@ pub fn collect_thread_cycles() -> usize {
 
 thread_local!(pub(crate) static GC_LIST: RefCell<Pin<Box<GcHeader>>> = RefCell::new(new_gc_list()));
 
+/// Create an empty linked list with a dummy GcHeader.
 fn new_gc_list() -> Pin<Box<GcHeader>> {
     let mut pinned = Box::pin(GcHeader {
         prev: std::ptr::null_mut(),
@@ -33,12 +38,14 @@ fn new_gc_list() -> Pin<Box<GcHeader>> {
     pinned
 }
 
+/// Scan the specified linked list. Collect cycles.
 fn collect_list(list: *mut GcHeader) -> usize {
     update_refs(list);
     subtract_refs(list);
     release_unreachable(list)
 }
 
+/// Visit the linked list.
 fn visit_list(list: *mut GcHeader, mut func: impl FnMut(&mut GcHeader)) {
     // Skip the first dummy entry.
     let mut ptr = unsafe { (*list).next };
@@ -52,7 +59,7 @@ fn visit_list(list: *mut GcHeader, mut func: impl FnMut(&mut GcHeader)) {
 const PREV_MASK_COLLECTING: usize = 1;
 const PREV_SHIFT: u32 = 1;
 
-/// Temporarily use GcHeader.prev as gc_ref_count.
+/// Temporarily use `GcHeader.prev` as `gc_ref_count`.
 /// Idea comes from https://bugs.python.org/issue33597.
 fn update_refs(list: *mut GcHeader) {
     visit_list(list, |header| {
@@ -61,6 +68,10 @@ fn update_refs(list: *mut GcHeader) {
     });
 }
 
+/// Subtract ref counts in `GcHeader.prev` by calling the non-recursive
+/// `Trace::trace` on every track objects.
+///
+/// After this, unreachable objects will have ref count down to 0.
 fn subtract_refs(list: *mut GcHeader) {
     let mut tracer = |header: &mut GcHeader| {
         if is_collecting(header) {
@@ -74,6 +85,7 @@ fn subtract_refs(list: *mut GcHeader) {
     });
 }
 
+/// Release unreachable objects in the linked list.
 fn release_unreachable(list: *mut GcHeader) -> usize {
     let mut count = 0;
 
@@ -112,6 +124,7 @@ fn release_unreachable(list: *mut GcHeader) -> usize {
     count
 }
 
+/// Restore `GcHeader.prev` as a pointer used in the linked list.
 fn restore_prev(list: *mut GcHeader) {
     let mut prev = list;
     visit_list(list, |header| {

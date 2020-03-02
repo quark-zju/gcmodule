@@ -9,6 +9,7 @@ use std::ops::DerefMut;
 use std::pin::Pin;
 use std::ptr::NonNull;
 
+/// Internal metadata used by the cycle collector.
 pub struct GcHeader {
     pub(crate) next: *mut GcHeader,
     pub(crate) prev: *mut GcHeader,
@@ -21,6 +22,10 @@ struct CcBox<T: ?Sized> {
     value: ManuallyDrop<T>,
 }
 
+/// A single-threaded reference-counting pointer that integrates
+/// with cyclic garbage collection.
+///
+/// See [module level documentation](index.html) for more details.
 pub struct Cc<T: Trace + 'static>(NonNull<CcBox<T>>);
 
 const REF_COUNT_MARKED_FOR_DROP: usize = usize::max_value();
@@ -66,6 +71,7 @@ impl CcDyn for CcDummy {
 }
 
 impl<T: Trace + 'static> Cc<T> {
+    /// Constructs a new [`Cc<T>`](struct.Cc.html).
     pub fn new(value: T) -> Cc<T> {
         let rc_box = CcBox {
             gc_header: std::ptr::null_mut(),
