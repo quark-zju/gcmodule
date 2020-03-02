@@ -28,7 +28,7 @@ struct CcBox<T: ?Sized> {
 /// with cyclic garbage collection.
 ///
 /// See [module level documentation](index.html) for more details.
-pub struct Cc<T: Trace + 'static>(NonNull<CcBox<T>>);
+pub struct Cc<T>(NonNull<CcBox<T>>);
 
 const REF_COUNT_MARKED_FOR_DROP: usize = usize::max_value();
 const REF_COUNT_MARKED_FOR_FREE: usize = REF_COUNT_MARKED_FOR_DROP - 1;
@@ -95,7 +95,9 @@ impl<T: Trace + 'static> Cc<T> {
         debug::log(|| (result.debug_name(), "new"));
         result
     }
+}
 
+impl<T> Cc<T> {
     #[inline]
     fn inner(&self) -> &CcBox<T> {
         unsafe { self.0.as_ref() }
@@ -159,7 +161,9 @@ impl<T: Trace + 'static> Cc<T> {
             unreachable!()
         }
     }
+}
 
+impl<T: Trace + 'static> Cc<T> {
     fn gc_track(&mut self, prev: &mut Pin<Box<GcHeader>>) {
         if self.is_tracked() {
             return;
@@ -179,7 +183,7 @@ impl<T: Trace + 'static> Cc<T> {
     }
 }
 
-impl<T: Trace + 'static> Clone for Cc<T> {
+impl<T> Clone for Cc<T> {
     #[inline]
     fn clone(&self) -> Self {
         self.inc_ref();
@@ -188,7 +192,7 @@ impl<T: Trace + 'static> Clone for Cc<T> {
     }
 }
 
-impl<T: Trace + 'static> Deref for Cc<T> {
+impl<T> Deref for Cc<T> {
     type Target = T;
 
     #[inline]
@@ -197,7 +201,7 @@ impl<T: Trace + 'static> Deref for Cc<T> {
     }
 }
 
-impl<T: Trace + 'static> Drop for Cc<T> {
+impl<T> Drop for Cc<T> {
     fn drop(&mut self) {
         match self.ref_count() {
             1 => {
