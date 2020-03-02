@@ -32,7 +32,7 @@ struct CcBox<T: ?Sized> {
 /// with cyclic garbage collection.
 ///
 /// See [module level documentation](index.html) for more details.
-pub struct Cc<T>(NonNull<CcBox<T>>);
+pub struct Cc<T: ?Sized>(NonNull<CcBox<T>>);
 
 const REF_COUNT_MARKED_FOR_DROP: usize = usize::max_value();
 const REF_COUNT_MARKED_FOR_FREE: usize = REF_COUNT_MARKED_FOR_DROP - 1;
@@ -101,7 +101,7 @@ impl<T: Trace> Cc<T> {
     }
 }
 
-impl<T> Cc<T> {
+impl<T: ?Sized> Cc<T> {
     #[inline]
     fn inner(&self) -> &CcBox<T> {
         unsafe { self.0.as_ref() }
@@ -196,7 +196,7 @@ impl<T> Clone for Cc<T> {
     }
 }
 
-impl<T> Deref for Cc<T> {
+impl<T: ?Sized> Deref for Cc<T> {
     type Target = T;
 
     #[inline]
@@ -205,7 +205,7 @@ impl<T> Deref for Cc<T> {
     }
 }
 
-impl<T> Drop for Cc<T> {
+impl<T: ?Sized> Drop for Cc<T> {
     fn drop(&mut self) {
         match self.ref_count() {
             1 => {
@@ -292,7 +292,7 @@ impl<T: Trace> CcDyn for Cc<T> {
     }
 }
 
-impl<T: Trace> Trace for Cc<T> {
+impl<T: Trace + ?Sized> Trace for Cc<T> {
     fn trace(&self, tracer: &mut Tracer) {
         debug::log(|| (self.debug_name(), "trace"));
         // For other non-`Cc<T>` container types, `trace` visit referents,
