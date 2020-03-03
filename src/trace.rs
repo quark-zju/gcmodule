@@ -3,7 +3,7 @@ use std::any::Any;
 
 /// Callback function that serves as the parameter of
 /// [`Trace::trace`](trait.Trace.html#method.trace).
-pub type Tracer<'a> = dyn FnMut(&mut GcHeader) + 'a;
+pub type Tracer<'a> = dyn FnMut(&GcHeader) + 'a;
 
 /// Defines how the cycle collector should collect a type.
 pub trait Trace: 'static {
@@ -11,6 +11,11 @@ pub trait Trace: 'static {
     ///
     /// For example, if `self.x` is a value referred by `self`,
     /// call `self.x.trace(tracer)`.
+    ///
+    /// The values that are visited should match the `Drop::drop`
+    /// implementation. If more values are visited, the collector
+    /// might panic. If less values are visited, the collector
+    /// might miss garbage.
     ///
     /// Do not call the `trace` function directly.
     fn trace(&self, tracer: &mut Tracer) {
@@ -20,6 +25,8 @@ pub trait Trace: 'static {
     /// Whether this type should be tracked by the cycle collector.
     /// This provides an optimization that makes atomic types opt
     /// out the cycle collector.
+    ///
+    /// This function is only called once at construction time.
     ///
     /// This is ideally an associated constant. However that is
     /// currently impossible due to compiler limitations.

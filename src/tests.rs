@@ -74,12 +74,12 @@ fn test_drop_by_ref_count() {
     assert_eq!(
         log,
         r#"
-0: track, clone (2), new
-1: track, clone (2), new
-2: track, clone (2), new
-0: drop (1, tracked), untrack, drop (0)
-1: drop (1, tracked), untrack, drop (0)
-2: drop (1, tracked), untrack, drop (0)
+0: new (CcBoxWithGcHeader)
+1: new (CcBoxWithGcHeader)
+2: new (CcBoxWithGcHeader)
+0: drop (0), drop (T), drop (CcBoxWithGcHeader)
+1: drop (0), drop (T), drop (CcBoxWithGcHeader)
+2: drop (0), drop (T), drop (CcBoxWithGcHeader)
 collect: collect_thread_cycles, 0 unreachable objects"#
     );
 }
@@ -90,12 +90,11 @@ fn test_self_referential() {
     assert_eq!(
         log,
         r#"
-0: track, clone (2), new, clone (3), clone (4), clone (5), drop (4)
+0: new (CcBoxWithGcHeader), clone (2), clone (3), clone (4), drop (3)
 collect: collect_thread_cycles
 0: gc_traverse, trace, trace, trace
 collect: 1 unreachable objects
-0: gc_prepare_drop, untrack, gc_force_drop
-?: drop (ignored), drop (ignored), drop (ignored), gc_mark_for_release, drop (release)"#
+0: gc_clone (4), drop (T), drop (3), drop (2), drop (1), drop (0), drop (CcBoxWithGcHeader)"#
     );
 }
 
@@ -106,30 +105,30 @@ fn test_3_object_cycle() {
     assert_eq!(
         log,
         r#"
-0: track, clone (2), new
-1: track, clone (2), new
-2: track, clone (2), new
-0: clone (3)
-1: clone (3)
-2: clone (3)
-0: drop (2)
-1: drop (2)
-2: drop (2)
+0: new (CcBoxWithGcHeader)
+1: new (CcBoxWithGcHeader)
+2: new (CcBoxWithGcHeader)
+0: clone (2)
+1: clone (2)
+2: clone (2)
+0: drop (1)
+1: drop (1)
+2: drop (1)
 collect: collect_thread_cycles
 2: gc_traverse
 1: trace, gc_traverse
 0: trace, gc_traverse
 2: trace
 collect: 3 unreachable objects
-2: gc_prepare_drop
-1: gc_prepare_drop
-0: gc_prepare_drop
-2: untrack, gc_force_drop
-?: drop (ignored)
-1: untrack, gc_force_drop
-?: drop (ignored)
-0: untrack, gc_force_drop
-?: drop (ignored), gc_mark_for_release, drop (release), gc_mark_for_release, drop (release), gc_mark_for_release, drop (release)"#
+2: gc_clone (2)
+1: gc_clone (2)
+0: gc_clone (2)
+2: drop (T)
+1: drop (1), drop (T)
+0: drop (1), drop (T)
+2: drop (1), drop (0), drop (CcBoxWithGcHeader)
+1: drop (0), drop (CcBoxWithGcHeader)
+0: drop (0), drop (CcBoxWithGcHeader)"#
     );
 }
 
@@ -139,15 +138,15 @@ fn test_2_object_cycle_with_another_incoming_reference() {
     assert_eq!(
         log,
         r#"
-0: track, clone (2), new
-1: track, clone (2), new
-2: track, clone (2), new
-0: clone (3)
-2: clone (3)
-1: clone (3)
-0: drop (2)
-1: drop (2)
-2: drop (2)
+0: new (CcBoxWithGcHeader)
+1: new (CcBoxWithGcHeader)
+2: new (CcBoxWithGcHeader)
+0: clone (2)
+2: clone (2)
+1: clone (2)
+0: drop (1)
+1: drop (1)
+2: drop (1)
 collect: collect_thread_cycles
 2: gc_traverse
 0: trace
@@ -156,14 +155,18 @@ collect: collect_thread_cycles
 2: trace
 1: trace
 collect: 3 unreachable objects
-2: gc_prepare_drop
-1: gc_prepare_drop
-0: gc_prepare_drop
-2: untrack, gc_force_drop
-?: drop (ignored)
-1: untrack, gc_force_drop
-0: untrack, gc_force_drop
-?: drop (ignored), drop (ignored), gc_mark_for_release, drop (release), gc_mark_for_release, drop (release), gc_mark_for_release, drop (release)"#
+2: gc_clone (2)
+1: gc_clone (2)
+0: gc_clone (2)
+2: drop (T)
+0: drop (1)
+1: drop (T)
+0: drop (T)
+2: drop (1)
+1: drop (1)
+2: drop (0), drop (CcBoxWithGcHeader)
+1: drop (0), drop (CcBoxWithGcHeader)
+0: drop (0), drop (CcBoxWithGcHeader)"#
     );
 }
 
@@ -173,26 +176,27 @@ fn test_2_object_cycle_with_another_outgoing_reference() {
     assert_eq!(
         log,
         r#"
-0: track, clone (2), new
-1: track, clone (2), new
-2: track, clone (2), new
-0: clone (3)
-2: clone (3)
-0: clone (4), drop (3)
-1: drop (1, tracked), untrack, drop (0)
-0: drop (2)
-2: drop (2)
+0: new (CcBoxWithGcHeader)
+1: new (CcBoxWithGcHeader)
+2: new (CcBoxWithGcHeader)
+0: clone (2)
+2: clone (2)
+0: clone (3), drop (2)
+1: drop (0), drop (T)
+0: drop (1)
+1: drop (CcBoxWithGcHeader)
+2: drop (1)
 collect: collect_thread_cycles
 2: gc_traverse
 0: trace, gc_traverse
 2: trace
 collect: 2 unreachable objects
-2: gc_prepare_drop
-0: gc_prepare_drop
-2: untrack, gc_force_drop
-?: drop (ignored)
-0: untrack, gc_force_drop
-?: drop (ignored), gc_mark_for_release, drop (release), gc_mark_for_release, drop (release)"#
+2: gc_clone (2)
+0: gc_clone (2)
+2: drop (T)
+0: drop (1), drop (T)
+2: drop (1), drop (0), drop (CcBoxWithGcHeader)
+0: drop (0), drop (CcBoxWithGcHeader)"#
     );
 }
 
@@ -203,35 +207,32 @@ fn test_simple_mixed_graph() {
     assert_eq!(
         log,
         r#"
-0: track, clone (2), new
-1: new
-0: clone (3), clone (4), drop (3)
-1: drop (0)
+0: new (CcBoxWithGcHeader)
+1: new (CcBox)
+0: clone (2), clone (3), drop (2)
+1: drop (0), drop (T), drop (CcBox)
 collect: collect_thread_cycles
 0: gc_traverse, trace, trace
 collect: 1 unreachable objects
-0: gc_prepare_drop, untrack, gc_force_drop
-?: drop (ignored), drop (ignored), gc_mark_for_release, drop (release)"#
+0: gc_clone (3), drop (T), drop (2), drop (1), drop (0), drop (CcBoxWithGcHeader)"#
     );
 
     let log = debug::capture_log(|| test_small_graph(2, &[0, 0x10], 0b10, 0));
     assert_eq!(
         log,
         r#"
-0: track, clone (2), new
-1: new
-0: clone (3)
+0: new (CcBoxWithGcHeader)
+1: new (CcBox)
+0: clone (2)
 1: clone (2)
-0: drop (2)
+0: drop (1)
 1: drop (1)
 collect: collect_thread_cycles
 0: gc_traverse, trace
-1: trace
 collect: 1 unreachable objects
-0: gc_prepare_drop, untrack, gc_force_drop
-?: drop (ignored)
-1: drop (0)
-?: gc_mark_for_release, drop (release)"#
+0: gc_clone (2), drop (T), drop (1)
+1: drop (0), drop (T), drop (CcBox)
+0: drop (0), drop (CcBoxWithGcHeader)"#
     )
 }
 
@@ -243,24 +244,25 @@ fn test_collect_multi_times() {
     assert_eq!(
         log,
         r#"
-0: track, clone (2), new
-1: track, clone (2), new
-0: clone (3)
+0: new (CcBoxWithGcHeader)
+1: new (CcBoxWithGcHeader)
+0: clone (2)
 collect: collect_thread_cycles
 1: gc_traverse
 0: trace, gc_traverse
 1: gc_traverse
 0: trace, gc_traverse
 collect: 0 unreachable objects
-0: drop (2)
+0: drop (1)
 collect: collect_thread_cycles
 1: gc_traverse
 0: trace, gc_traverse
 1: gc_traverse
 0: trace, gc_traverse
 collect: 0 unreachable objects
-1: drop (1, tracked), untrack, drop (0)
-0: drop (1, tracked), untrack, drop (0)
+1: drop (0), drop (T)
+0: drop (0), drop (T), drop (CcBoxWithGcHeader)
+1: drop (CcBoxWithGcHeader)
 collect: collect_thread_cycles, 0 unreachable objects"#
     );
 }
