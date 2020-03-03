@@ -345,3 +345,21 @@ impl Cc<dyn Trace> {
 
 #[cfg(feature = "nightly")]
 impl<T: ?Sized + std::marker::Unsize<U>, U: ?Sized> std::ops::CoerceUnsized<Cc<U>> for Cc<T> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dyn_downcast() {
+        let v: Cc<dyn Trace> = Cc::new(vec![1u8, 2, 3]).into_dyn();
+        let downcasted: &Vec<u8> = v.downcast_ref().unwrap();
+        assert_eq!(downcasted, &vec![1, 2, 3]);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_unsize_coerce() {
+        let _v: Cc<dyn Trace> = Cc::new(vec![1u8, 2, 3]);
+    }
+}

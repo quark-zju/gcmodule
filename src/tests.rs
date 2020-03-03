@@ -265,19 +265,6 @@ collect: collect_thread_cycles, 0 unreachable objects"#
     );
 }
 
-#[test]
-fn test_dyn_downcast() {
-    let v: Cc<dyn Trace> = Cc::new(vec![1u8, 2, 3]).into_dyn();
-    let downcasted: &Vec<u8> = v.downcast_ref().unwrap();
-    assert_eq!(downcasted, &vec![1, 2, 3]);
-}
-
-#[cfg(feature = "nightly")]
-#[test]
-fn test_unsize_coerce() {
-    let _v: Cc<dyn Trace> = Cc::new(vec![1u8, 2, 3]);
-}
-
 quickcheck! {
     fn test_quickcheck_16_vertex_graph(edges: Vec<u8>, atomic_bits: u16, collect_bits: u16) -> bool {
         test_small_graph(16, &edges, atomic_bits, collect_bits);
