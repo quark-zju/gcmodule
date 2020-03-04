@@ -70,7 +70,7 @@ pub struct Cc<T: ?Sized>(NonNull<CcBox<T>>);
 /// Whether a `GcHeader` exists before the `CcBox<T>`.
 const REF_COUNT_MASK_TRACKED: usize = 0b1;
 
-/// Wherther `T` in the `CcBox<T>` has been dropped.
+/// Whether `T` in the `CcBox<T>` has been dropped.
 const REF_COUNT_MASK_DROPPED: usize = 0b10;
 
 /// Number of bits used for metadata.
