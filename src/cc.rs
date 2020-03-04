@@ -449,12 +449,11 @@ unsafe fn cast_ref<T: ?Sized, R>(value: &T, offset_bytes: isize) -> &R {
 unsafe fn cast_box<T: ?Sized>(value: Box<CcBox<T>>) -> Box<CcBoxWithGcHeader<T>> {
     let mut ptr: *const CcBox<T> = Box::into_raw(value);
 
-    // ptr can be "thin" (1 byte) or "fat" (2 bytes).
+    // ptr can be "thin" (1 pointer) or "fat" (2 pointers).
     // Change the first byte to point to the GcHeader.
     let pptr: *mut *const CcBox<T> = &mut ptr;
-    let pptr: *mut usize = pptr as _;
-    *pptr -= mem::size_of::<GcHeader>();
-
+    let pptr: *mut *const GcHeader = pptr as _;
+    *pptr = (*pptr).offset(-1);
     let ptr: *mut CcBoxWithGcHeader<T> = mem::transmute(ptr);
     Box::from_raw(ptr)
 }
