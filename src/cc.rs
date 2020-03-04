@@ -10,6 +10,27 @@ use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::ptr::NonNull;
 
+// Types not tracked by the cycle collector:
+//
+//     CcBox<T>
+//     +-----------+ <---+--- Cc<T> (pointer)
+//     | ref_count |     |
+//     +-----------+     +--- Cc<T> (pointer)
+//     | T (data)  |
+//     +-----------+
+//
+// Types not tracked by the cycle collector:
+//
+//     CcBoxWithHeader<T>
+//     +----------------------+
+//     | GcHeader | next      | (GcHeader is in a linked list)
+//     |          | prev      |
+//     |          | vptr<T>   |
+//     +----------------------+ <---+--- Cc<T> (pointer)
+//     | CcBox<T> | ref_count |     |
+//     |          | T (data)  |     +--- Cc<T> (pointer)
+//     +----------------------+
+
 /// Internal metadata used by the cycle collector.
 #[repr(C)]
 pub struct GcHeader {
