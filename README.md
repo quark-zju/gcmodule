@@ -26,6 +26,8 @@ drop(b); // Internal values are not dropped due to the cycle.
 gcmodule::collect_thread_cycles(); // Internal values are dropped.
 ```
 
+Refer to [documentation](https://docs.rs/gcmodule/) for more examples and technical details.
+
 ## Similar Projects
 
 ### [bacon-rajan-cc](https://github.com/fitzgen/bacon-rajan-cc) v0.3

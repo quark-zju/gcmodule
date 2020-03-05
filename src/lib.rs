@@ -8,6 +8,8 @@
 //! similar to `std::rc::Rc<T>`. Unlike `Rc<T>`, [`collect_thread_cycles`](fn.collect_thread_cycles.html)
 //! can be used to drop unreachable values that form circular references.
 //!
+//! # Examples
+//!
 //! ## Cloning references
 //!
 //! Similar to `Rc<T>`, use `clone()` to get cloned references.
@@ -41,23 +43,23 @@
 //! gcmodule::collect_thread_cycles();  // This will drop a and b.
 //! ```
 //!
-//! ## Definiting new types
+//! ## Defining new types
 //!
-//! `Cc<T>` requires [`Trace`](trait.Trace.html) implemented for `T` so the
-//! collector knows how values are referred.
+//! [`Cc<T>`](struct.Cc.html) requires [`Trace`](trait.Trace.html) implemented
+//! for `T` so the collector knows how values are referred.
 //!
 //! ### Acyclic types
 //!
-//! Types that do not store references to other objects, or only store
-//! references to atomic types (such as numbers or strings), can opt-out
-//! cyclic garbage collection for performance. This can be done by using
-//! the [`untrack!`](macro.untrack.html) macro:
+//! Types that can never be part of a reference cycle can opt-out the cycle
+//! collector for performance. This can be done by using the
+//!  [`trace_acyclic!`](macro.trace_acyclic.html) macro:
 //!
 //! ```
-//! use gcmodule::{untrack, Cc};
+//! use gcmodule::{Cc, trace_acyclic};
+//!
 //! struct Foo(String);
 //! struct Bar;
-//! untrack!(Foo, Bar); // Opt-out cycle collector. Ref-count still works.
+//! trace_acyclic!(Foo, Bar); // Opt-out cycle collector. Ref-count still works.
 //!
 //! let foo = Cc::new(Foo("abc".to_string()));
 //! let bar = Cc::new(Bar);
@@ -69,8 +71,8 @@
 //!
 //! ### Container types
 //!
-//! Types that store references to other objects, need to implement the
-//! `Trace` trait. For example:
+//! Container types  need to implement [`Trace`](trait.Trace.html) to specify
+//! how to visit referred [`Cc`](struct.Cc.html) values.
 //!
 //! ```
 //! use gcmodule::{Cc, Trace, Tracer};
@@ -81,11 +83,116 @@
 //!         self.0.trace(tracer);
 //!         self.1.trace(tracer);
 //!     }
+//!
+//!     // `is_type_tracked` is optional. But it can help performance.
+//!     fn is_type_tracked() -> bool {
+//!         T1::is_type_tracked() && T2::is_type_tracked()
+//!     }
 //! }
 //!
 //! let foo = Cc::new(Foo(Foo(Cc::new(1), 2, 3), Cc::new("abc"), 10));
 //! # drop(foo);
 //! ```
+//!
+//! The [`trace_fields!`](macro.trace_fields.html) macro can be used to
+//! implement [`Trace`](trait.Trace.html) for simple structures.
+//!
+//! ```
+//! use gcmodule::{Cc, Trace, trace_fields};
+//! struct A<T1, T2>(T1, T2, u8);
+//! struct B<T1, T2> { x: T1, y: T2, z: Box<dyn Trace> };
+//!
+//! trace_fields!(A<T1, T2> { 0: T1, 1: T2 });
+//! trace_fields!(B<T1, T2> { x: T1, y: T2, z });
+//! ```
+//!
+//! # Technical Details
+//!
+//! ## Memory Layouts
+//!
+//! [`Cc<T>`](struct.Cc.html) uses different memory layouts depending on `T`.
+//!
+//! ### Untracked types
+//!
+//! If [`<T as Trace>::is_type_tracked()`](trait.Trace.html#method.is_type_tracked)
+//! returns `false`, the layout is similar to `Rc<T>` but without a `weak_count`:
+//!
+//! ```plain,ignore
+//! Shared T                    Pointer
+//! +------------------+     .-- Cc<T>
+//! | ref_count: usize | <--<
+//! |------------------|     '-- Cc<T>::clone()
+//! | T (shared data)  | <--- Cc<T>::deref()
+//! +------------------+
+//! ```
+//!
+//! ### Tracked types
+//!
+//! If [`<T as Trace>::is_type_tracked()`](trait.Trace.html#method.is_type_tracked)
+//! returns `true`, the layout has an extra `GcHeader` that makes the value visible
+//! in a thread-local linked list:
+//!
+//! ```plain,ignore
+//! Shared T with GcHeader
+//! +------------------+
+//! | gc_prev: pointer | ---> The GcHeader chain into a linked list.
+//! | gc_next: pointer |
+//! | vptr<T>: pointer | ---> The virtual table pointer about `T as Trace`.
+//! |------------------|
+//! | ref_count: usize | <--- Cc<T>
+//! | ---------------- |
+//! | T (shared data)  | <--- Cc<T>::deref()
+//! +------------------+
+//! ```
+//!
+//! ## Incorrect `Trace` implementation
+//!
+//! While most public APIs provided by this library looks safe, incorrectly
+//! implementing the [`Trace`](trait.Trace.html) trait has consequences.
+//!
+//! This library should cause no undefined behaviors (UB) even with incorrect
+//! [`Trace`](trait.Trace.html) implementation on _debug_ build.
+//!
+//! Below are some consequences of a wrong [`Trace`](trait.Trace.html)
+//! implementation.
+//!
+//! ### Memory leak
+//!
+//! If [`Trace::trace`](trait.Trace.html#method.trace) does not visit all
+//! referred values, the collector might fail to detect cycles, and take
+//! no actions on cycles. That causes memory leak.
+//!
+//! ### Panic
+//!
+//! If [`Trace::trace`](trait.Trace.html#method.trace) visits more values
+//! than it should (for example, visit indirectly referred values, or visit
+//! a directly referred value multiple times), the collector can detect
+//! such issues and panic the thread with the message:
+//!
+//! ```plain,ignore
+//! bug: unexpected ref-count after dropping cycles
+//! This usually indicates a buggy Trace or Drop implementation.
+//! ```
+//!
+//! ### Undefined behavior (UB)
+//!
+//! After the above panic (`bug: unexpected ref-count after dropping cycles`),
+//! dereferencing a garbage-collected [`Cc<T>`](struct.Cc.html) will:
+//!
+//! #### On debug build
+//!
+//! Debug build has sanity checks on `Cc::<T>::deref()`. It will panic if `T`
+//! was garbage-collected:
+//!
+//! ```plain,ignore
+//! bug: accessing a dropped CcBox detected
+//! ```
+//!
+//! In other words, no UB on debug build.
+//!
+//! On release build the dereference would access dropped values, which is
+//! undefined behavior. Again, the UB can only happen if the [`Trace::trace`](trait.Trace.html#method.trace)
+//! is implemented wrong, and panic will happen before the UB.
 
 mod cc;
 mod cc_impls;
