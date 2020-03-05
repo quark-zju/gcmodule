@@ -2,8 +2,10 @@ use crate::debug;
 use crate::testutil::test_small_graph;
 use crate::{collect, Cc, Trace, Tracer};
 use quickcheck::quickcheck;
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::ops::Deref;
+use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 
 #[test]
@@ -289,6 +291,61 @@ collect: 0 unreachable objects
 1: drop (CcBoxWithGcHeader)
 collect: collect_thread_cycles, 0 unreachable objects"#
     );
+}
+
+#[derive(Default)]
+struct DuplicatedVisits {
+    a: RefCell<Option<Box<dyn Trace>>>,
+    extra_times: Cell<usize>,
+}
+impl Trace for DuplicatedVisits {
+    fn trace(&self, tracer: &mut Tracer) {
+        // incorrectly visit "a" twice.
+        self.a.trace(tracer);
+        for _ in 0..self.extra_times.get() {
+            self.a.trace(tracer);
+        }
+    }
+    fn is_type_tracked() -> bool {
+        true
+    }
+}
+impl panic::UnwindSafe for DuplicatedVisits {}
+
+fn capture_panic_message<R, F: Fn() -> R + panic::UnwindSafe>(func: F) -> String {
+    match panic::catch_unwind(func) {
+        Ok(_) => "(no panic happened)".to_string(),
+        Err(e) => {
+            if let Some(s) = e.downcast_ref::<String>() {
+                return s.clone();
+            } else if let Some(s) = e.downcast_ref::<&'static str>() {
+                return s.to_string();
+            } else {
+                "(panic information is not a string)".to_string()
+            }
+        }
+    }
+}
+
+#[test]
+fn test_trace_impl_double_visits() {
+    let v: Cc<DuplicatedVisits> = Default::default();
+    v.extra_times.set(1);
+    *(v.a.borrow_mut()) = Some(Box::new(v.clone()));
+
+    let message = capture_panic_message(|| collect::collect_thread_cycles());
+    assert!(message.contains("bug: unexpected ref-count after dropping cycles"));
+
+    // The `CcBox<_>` was "forced dropped" as a side effect.
+    // So accessing `v` becomes invalid.
+    // For performance reasons, this is a debug assertion.
+    #[cfg(debug_assertions)]
+    {
+        let message = capture_panic_message(move || {
+            let _ = v.deref();
+        });
+        assert!(message.contains("bug: accessing a dropped CcBox detected"));
+    }
 }
 
 quickcheck! {

@@ -8,6 +8,7 @@ use std::cell::UnsafeCell;
 use std::mem;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
+use std::panic::UnwindSafe;
 use std::ptr::NonNull;
 
 // Types not tracked by the cycle collector:
@@ -66,6 +67,14 @@ pub(crate) struct CcBoxWithGcHeader<T: ?Sized> {
 ///
 /// See [module level documentation](index.html) for more details.
 pub struct Cc<T: ?Sized>(NonNull<CcBox<T>>);
+
+// `ManuallyDrop<T>` does not implement `UnwindSafe`. But `CcBox::drop` does
+// make sure `T` is dropped. If `T` is unwind-safe, so does `CcBox<T>`.
+impl<T: UnwindSafe + ?Sized> UnwindSafe for CcBox<T> {}
+
+// `NonNull` does not implement `UnwindSafe`. But `Cc` only uses it
+// as a "const" pointer. If `T` is unwind-safe, so does `Cc<T>`.
+impl<T: UnwindSafe + ?Sized> UnwindSafe for Cc<T> {}
 
 /// Whether a `GcHeader` exists before the `CcBox<T>`.
 const REF_COUNT_MASK_TRACKED: usize = 0b1;
