@@ -1,25 +1,44 @@
 //! Test utilities.
 
 use crate::{collect, debug, Cc, Trace, Tracer};
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::sync::Arc;
 
+thread_local!(static NEXT_TRACKED_OVERRIDE: Cell<bool> = Cell::new(true));
+
 /// Track count of drop(). Store result in AtomicUsize.
 /// The bool value controls whether this type is tracked.
-pub struct DropCounter<T>(T, Arc<AtomicUsize>, bool);
+pub struct DropCounter<T>(T, Arc<AtomicUsize>);
 impl<T: Trace> Trace for DropCounter<T> {
     fn trace(&self, tracer: &mut Tracer) {
         self.0.trace(tracer);
     }
-    fn is_type_tracked(&self) -> bool {
-        self.2
+    fn is_type_tracked() -> bool {
+        NEXT_TRACKED_OVERRIDE.with(|a| a.get())
     }
 }
 impl<T> Drop for DropCounter<T> {
     fn drop(&mut self) {
         self.1.fetch_add(1, SeqCst);
     }
+}
+
+pub(crate) fn create_objects(
+    n: usize,
+    atomic_bits: u16,
+    drop_count: Arc<AtomicUsize>,
+) -> Vec<Cc<DropCounter<RefCell<Vec<Box<dyn Trace>>>>>> {
+    assert!(n <= 16);
+    let is_tracked = |n| -> bool { (atomic_bits >> n) & 1 == 0 };
+    (0..n)
+        .map(|i| {
+            debug::NEXT_DEBUG_NAME.with(|n| n.set(i));
+            NEXT_TRACKED_OVERRIDE.with(|a| a.set(is_tracked(i)));
+            Cc::new(DropCounter(RefCell::new(Vec::new()), drop_count.clone()))
+        })
+        .collect()
 }
 
 /// Test a graph of n (n <= 16) nodes, with specified edges between nodes.
@@ -35,16 +54,7 @@ pub fn test_small_graph(n: usize, edges: &[u8], atomic_bits: u16, collect_bits: 
     let drop_count: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
     let mut edge_descs: Vec<Vec<usize>> = vec![Vec::new(); n];
     {
-        let values: Vec<Cc<DropCounter<RefCell<Vec<Box<dyn Trace>>>>>> = (0..n)
-            .map(|i| {
-                debug::NEXT_DEBUG_NAME.with(|n| n.set(i));
-                Cc::new(DropCounter(
-                    RefCell::new(Vec::new()),
-                    drop_count.clone(),
-                    is_tracked(i),
-                ))
-            })
-            .collect();
+        let values = create_objects(n, atomic_bits, drop_count.clone());
         for &edge in edges {
             let from_index = ((edge as usize) >> 4) % n;
             let to_index = ((edge as usize) & 15) % n;

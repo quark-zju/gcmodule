@@ -1,6 +1,6 @@
 use crate::debug;
 use crate::testutil::test_small_graph;
-use crate::{collect, Cc, Trace};
+use crate::{collect, Cc, Trace, Tracer};
 use quickcheck::quickcheck;
 use std::cell::RefCell;
 use std::ops::Deref;
@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 fn test_simple_untracked() {
     static DROPPED: AtomicBool = AtomicBool::new(false);
     struct X(&'static str);
-    crate::untrack!(X);
+    crate::trace_acyclic!(X);
     impl Drop for X {
         fn drop(&mut self) {
             DROPPED.store(true, SeqCst);
@@ -31,7 +31,7 @@ fn test_simple_untracked() {
 fn test_simple_tracked() {
     static DROPPED: AtomicBool = AtomicBool::new(false);
     struct X(&'static str);
-    impl Trace for X {}
+    crate::trace_fields!(X {});
     impl Drop for X {
         fn drop(&mut self) {
             DROPPED.store(true, SeqCst);
@@ -64,6 +64,30 @@ fn test_simple_cycles() {
             b.push(Box::new(a.clone()));
         }
         assert_eq!(collect::collect_thread_cycles(), 0);
+    }
+    assert_eq!(collect::collect_thread_cycles(), 2);
+}
+
+#[test]
+fn test_simple_non_trait_cycles() {
+    // cycles without using trait objects.
+    type C = Cc<RefCell<Option<Box<T>>>>;
+    #[derive(Default, Clone)]
+    struct T(C);
+    use crate::Tracer;
+    impl Trace for T {
+        fn trace(&self, t: &mut Tracer) {
+            self.0.trace(t);
+        }
+        fn is_type_tracked() -> bool {
+            true
+        }
+    }
+    {
+        let t1: T = Default::default();
+        debug::NEXT_DEBUG_NAME.with(|n| n.set(1));
+        let t2: T = T(Cc::new(RefCell::new(Some(Box::new(t1.clone())))));
+        (*t1.0.borrow_mut()) = Some(Box::new(t2.clone()));
     }
     assert_eq!(collect::collect_thread_cycles(), 2);
 }

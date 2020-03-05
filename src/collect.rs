@@ -151,8 +151,10 @@ fn release_unreachable(list: &GcHeader) -> usize {
         let ref_count = value.ref_count();
         assert_eq!(
             ref_count, 1,
-            "bug: unexpected ref-count after dropping cycles\n{}",
-            "This usually indicates a buggy Trace or Drop implementation."
+            concat!(
+                "bug: unexpected ref-count after dropping cycles\n",
+                "This usually indicates a buggy Trace or Drop implementation."
+            )
         );
     }
 

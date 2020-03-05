@@ -170,7 +170,7 @@ impl GcHeader {
 impl<T: Trace> Cc<T> {
     /// Constructs a new [`Cc<T>`](struct.Cc.html).
     pub fn new(value: T) -> Cc<T> {
-        let is_tracked = value.is_type_tracked();
+        let is_tracked = T::is_type_tracked();
         let cc_box = CcBox {
             ref_count: Cell::new(
                 (1 << REF_COUNT_SHIFT)
@@ -297,6 +297,19 @@ impl<T: ?Sized> CcBox<T> {
         }
     }
 
+    fn trace_t(&self, tracer: &mut Tracer) {
+        if !self.is_tracked() {
+            return;
+        }
+        debug::log(|| (self.debug_name(), "trace"));
+        // For other non-`Cc<T>` container types, `trace` visit referents,
+        // is recursive, and does not call `tracer` directly. For `Cc<T>`,
+        // `trace` stops here, is non-recursive, and does apply `tracer`
+        // to the actual `GcHeader`. It's expected that the upper layer
+        // calls `gc_traverse` on everything (not just roots).
+        tracer(self.gc_header());
+    }
+
     pub(crate) fn debug_name(&self) -> &str {
         #[cfg(test)]
         {
@@ -331,11 +344,6 @@ impl<T: ?Sized> Cc<T> {
         self.inner().ref_count()
     }
 
-    #[inline]
-    fn is_tracked(&self) -> bool {
-        self.inner().is_tracked()
-    }
-
     pub(crate) fn debug_name(&self) -> &str {
         self.inner().debug_name()
     }
@@ -364,9 +372,17 @@ impl<T: ?Sized> Deref for CcBox<T> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        // safety: CcBox (and its value) lifetime maintained by ref count. It
-        // can be invalid after drop_t(). drop_t() callers must ensure T is not
-        // accessed.
+        debug_assert!(
+            !self.is_dropped(),
+            concat!(
+                "bug: accessing a dropped CcBox detected\n",
+                "This usually happens after ignoring another panic triggered by the collector."
+            )
+        );
+        // safety: CcBox (and its value) lifetime maintained by ref count.
+        // If `Trace` is implemented correctly then the GC won't drop_t()
+        // incorrectly and this pointer is valid. Otherwise the above
+        // assertion can prevent UBs on debug build.
         unsafe { &*self.value.get() }
     }
 }
@@ -418,33 +434,41 @@ impl<T: Trace> CcDyn for CcBox<T> {
             (self.debug_name(), msg)
         });
         // safety: The pointer is compatible. The mutability is different only
-        // to sastify NonNull (NonNull::new requires &mut). The returned value
+        // to satisfy NonNull (NonNull::new requires &mut). The returned value
         // is still "immutable".
         let ptr: NonNull<CcBox<T>> = unsafe { mem::transmute(self) };
         Cc::<T>(ptr).into_dyn()
     }
 }
 
-impl<T: Trace + ?Sized> Trace for Cc<T> {
+impl<T: Trace> Trace for Cc<T> {
     fn trace(&self, tracer: &mut Tracer) {
-        if !self.is_tracked() {
-            return;
-        }
-        debug::log(|| (self.debug_name(), "trace"));
-        // For other non-`Cc<T>` container types, `trace` visit referents,
-        // is recursive, and does not call `tracer` directly. For `Cc<T>`,
-        // `trace` stops here, is non-recursive, and does apply `tracer`
-        // to the actual `GcHeader`. It's expected that the upper layer
-        // calls `gc_traverse` on everything (not just roots).
-        tracer(self.inner().gc_header());
+        self.inner().trace_t(tracer)
     }
 
-    fn is_type_tracked(&self) -> bool {
-        T::is_type_tracked(self.deref())
+    #[inline]
+    fn is_type_tracked() -> bool {
+        T::is_type_tracked()
     }
 
     fn as_any(&self) -> Option<&dyn Any> {
-        T::as_any(self.deref())
+        Trace::as_any(self.deref())
+    }
+}
+
+impl Trace for Cc<dyn Trace> {
+    fn trace(&self, tracer: &mut Tracer) {
+        self.inner().trace_t(tracer)
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        // Trait objects can be anything.
+        true
+    }
+
+    fn as_any(&self) -> Option<&dyn Any> {
+        Trace::as_any(self.deref())
     }
 }
 
@@ -486,7 +510,7 @@ mod tests {
     /// Check that `GcHeader::value()` returns a working trait object.
     #[test]
     fn test_gc_header_value() {
-        let v1: Cc<Vec<usize>> = Cc::new(vec![1, 2]);
+        let v1: Cc<Box<dyn Trace>> = Cc::new(Box::new(1));
         assert_eq!(v1.ref_count(), 1);
 
         let v2 = v1.clone();

@@ -1,39 +1,117 @@
 use crate::trace::{Trace, Tracer};
 use std::any::Any;
 
-/// Mark types as "untracked". Untracked types opt-out the cycle collector.
-///
-/// This is done by implementing [`Trace`](trait.Trace.html) with
-/// [`is_type_tracked`](trait.Trace.html#method.is_type_tracked) returning
-/// `false`.
 #[macro_export]
-macro_rules! untrack {
-    ( <$( $g: tt ),*> $( $t: tt )* ) => {
-            impl<$( $g: 'static ),*> $crate::Trace for $($t)* {
-                fn is_type_tracked(&self) -> bool { false }
-                fn as_any(&self) -> Option<&dyn std::any::Any> { Some(self) }
-            }
+/// Mark types as acyclic. Opt-out the cycle collector.
+///
+/// See [`Trace::is_type_tracked`](trait.Trace.html#method.is_type_tracked) for details.
+/// In general, types including trait objects (directly or indirectly) should
+/// not be acyclic.
+///
+/// ## Examples
+///
+/// ```
+/// use gcmodule::trace_acyclic;
+///
+/// struct X(u32);
+/// struct Y(String);
+/// struct Z<T>(fn (T));
+///
+/// trace_acyclic!(X);
+/// trace_acyclic!(Y);
+/// trace_acyclic!(<T> Z<T>);
+/// ```
+macro_rules! trace_acyclic {
+    ( <$( $g:ident ),*> $( $t: tt )* ) => {
+        impl<$( $g: 'static ),*> $crate::Trace for $($t)* {
+            #[inline]
+            fn is_type_tracked() -> bool where Self: Sized { false }
+            fn as_any(&self) -> Option<&dyn std::any::Any> { Some(self) }
+        }
     };
     ( $( $t: ty ),* ) => {
+        $( $crate::trace_acyclic!(<> $t); )*
+    };
+}
+
+#[macro_export]
+/// Implement [`Trace`](trait.Trace.html) for simple container types.
+///
+/// ## Examples
+///
+/// ```
+/// use gcmodule::Trace;
+/// use gcmodule::trace_fields;
+///
+/// struct X<T1, T2> { a: T1, b: T2 };
+/// struct Y<T>(Box<T>);
+/// struct Z(Box<dyn Trace>);
+///
+/// trace_fields!(
+///     X<T1, T2> { a: T1, b: T2 }
+///     Y<T> { 0: T }
+///     Z { 0 }
+/// );
+/// ```
+macro_rules! trace_fields {
+    ( $( $type:ty { $( $field:tt $(: $tp:ident )? ),* } )* ) => {
         $(
-            impl $crate::Trace for $t {
-                fn is_type_tracked(&self) -> bool { false }
+            impl< $( $( $tp: $crate::Trace )? ),* > $crate::Trace for $type {
+                fn trace(&self, tracer: &mut $crate::Tracer) {
+                    let _ = tracer;
+                    $( (&self . $field ).trace(tracer); )*
+                }
+                #[inline]
+                fn is_type_tracked() -> bool {
+                    $( $( if $tp::is_type_tracked() { return true } )? )*
+                    false
+                }
                 fn as_any(&self) -> Option<&dyn std::any::Any> { Some(self) }
             }
         )*
     };
 }
 
-untrack!(bool, char, f32, f64, i16, i32, i64, i8, isize, u16, u32, u64, u8, usize);
-untrack!(());
-untrack!(String, &'static str);
+trace_acyclic!(bool, char, f32, f64, i16, i32, i64, i8, isize, u16, u32, u64, u8, usize);
+trace_acyclic!(());
+trace_acyclic!(String, &'static str);
+
+mod tuples {
+    trace_fields!(
+        (A, B) { 0: A, 1: B }
+        (A, B, C) { 0: A, 1: B, 2: C }
+        (A, B, C, D) { 0: A, 1: B, 2: C, 3: D }
+        (A, B, C, D, E) { 0: A, 1: B, 2: C, 3: D, 4: E }
+    );
+}
 
 mod boxed {
     use super::*;
 
-    impl<T: Trace + ?Sized> Trace for Box<T> {
+    impl<T: Trace> Trace for Box<T> {
         fn trace(&self, tracer: &mut Tracer) {
-            (**self).trace(tracer);
+            self.as_ref().trace(tracer);
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
+    }
+
+    impl Trace for Box<dyn Trace> {
+        fn trace(&self, tracer: &mut Tracer) {
+            self.as_ref().trace(tracer);
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            // Trait objects can have complex non-atomic structure.
+            true
         }
 
         fn as_any(&self) -> Option<&dyn Any> {
@@ -49,6 +127,11 @@ mod cell {
     impl<T: Copy + Trace> Trace for cell::Cell<T> {
         fn trace(&self, tracer: &mut Tracer) {
             self.get().trace(tracer);
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
         }
 
         fn as_any(&self) -> Option<&dyn Any> {
@@ -68,6 +151,11 @@ mod cell {
             }
         }
 
+        #[inline]
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+
         fn as_any(&self) -> Option<&dyn Any> {
             Some(self)
         }
@@ -79,11 +167,16 @@ mod collections {
     use std::collections;
     use std::hash;
 
-    impl<K: 'static, V: Trace> Trace for collections::BTreeMap<K, V> {
+    impl<K: Trace, V: Trace> Trace for collections::BTreeMap<K, V> {
         fn trace(&self, tracer: &mut Tracer) {
             for (_, v) in self {
                 v.trace(tracer);
             }
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            K::is_type_tracked() && V::is_type_tracked()
         }
 
         fn as_any(&self) -> Option<&dyn Any> {
@@ -98,6 +191,11 @@ mod collections {
             }
         }
 
+        #[inline]
+        fn is_type_tracked() -> bool {
+            K::is_type_tracked() && V::is_type_tracked()
+        }
+
         fn as_any(&self) -> Option<&dyn Any> {
             Some(self)
         }
@@ -110,6 +208,11 @@ mod collections {
             }
         }
 
+        #[inline]
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+
         fn as_any(&self) -> Option<&dyn Any> {
             Some(self)
         }
@@ -120,6 +223,11 @@ mod collections {
             for t in self {
                 t.trace(tracer);
             }
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
         }
 
         fn as_any(&self) -> Option<&dyn Any> {
@@ -137,6 +245,11 @@ mod vec {
             }
         }
 
+        #[inline]
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+
         fn as_any(&self) -> Option<&dyn Any> {
             Some(self)
         }
@@ -144,25 +257,25 @@ mod vec {
 }
 
 mod func {
-    untrack!(<X> fn() -> X);
-    untrack!(<A, X> fn(A) -> X);
-    untrack!(<A, B, X> fn(A, B) -> X);
-    untrack!(<A, B, C, X> fn(A, B, C) -> X);
-    untrack!(<A, B, C, D, X> fn(A, B, C, D) -> X);
-    untrack!(<A, B, C, D, E, X> fn(A, B, C, D, E) -> X);
-    untrack!(<A, B, C, D, E, F, X> fn(A, B, C, D, E, F) -> X);
+    trace_acyclic!(<X> fn() -> X);
+    trace_acyclic!(<A, X> fn(A) -> X);
+    trace_acyclic!(<A, B, X> fn(A, B) -> X);
+    trace_acyclic!(<A, B, C, X> fn(A, B, C) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(A, B, C, D) -> X);
+    trace_acyclic!(<A, B, C, D, E, X> fn(A, B, C, D, E) -> X);
+    trace_acyclic!(<A, B, C, D, E, F, X> fn(A, B, C, D, E, F) -> X);
 }
 
 mod ffi {
     use std::ffi;
 
-    untrack!(ffi::CString, ffi::NulError, ffi::OsString);
+    trace_acyclic!(ffi::CString, ffi::NulError, ffi::OsString);
 }
 
 mod net {
     use std::net;
 
-    untrack!(
+    trace_acyclic!(
         net::AddrParseError,
         net::Ipv4Addr,
         net::Ipv6Addr,
@@ -184,6 +297,10 @@ mod option {
             }
         }
 
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+
         fn as_any(&self) -> Option<&dyn Any> {
             Some(self)
         }
@@ -193,13 +310,13 @@ mod option {
 mod path {
     use std::path;
 
-    untrack!(path::PathBuf);
+    trace_acyclic!(path::PathBuf);
 }
 
 mod process {
     use std::process;
 
-    untrack!(
+    trace_acyclic!(
         process::Child,
         process::ChildStderr,
         process::ChildStdin,
@@ -214,8 +331,8 @@ mod process {
 mod rc {
     use std::rc;
 
-    untrack!(<T> rc::Rc<T>);
-    untrack!(<T> rc::Weak<T>);
+    trace_acyclic!(<T> rc::Rc<T>);
+    trace_acyclic!(<T> rc::Weak<T>);
 }
 
 mod result {
@@ -229,6 +346,10 @@ mod result {
             }
         }
 
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked() && U::is_type_tracked()
+        }
+
         fn as_any(&self) -> Option<&dyn Any> {
             Some(self)
         }
@@ -238,15 +359,71 @@ mod result {
 mod sync {
     use std::sync;
 
-    untrack!(<T> sync::Arc<T>);
-    untrack!(<T> sync::Mutex<T>);
-    untrack!(<T> sync::RwLock<T>);
+    trace_acyclic!(<T> sync::Arc<T>);
+    trace_acyclic!(<T> sync::Mutex<T>);
+    trace_acyclic!(<T> sync::RwLock<T>);
 }
 
 mod thread {
     use std::thread;
 
-    untrack!(<T> thread::JoinHandle<T>);
-    untrack!(<T> thread::LocalKey<T>);
-    untrack!(thread::Thread);
+    trace_acyclic!(<T> thread::JoinHandle<T>);
+    trace_acyclic!(<T> thread::LocalKey<T>);
+    trace_acyclic!(thread::Thread);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Cc;
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+
+    #[test]
+    fn test_is_type_tracked() {
+        assert!(!u8::is_type_tracked());
+        assert!(!<f32 as Trace>::is_type_tracked());
+        assert!(!String::is_type_tracked());
+        assert!(!Option::<u32>::is_type_tracked());
+        assert!(!Vec::<u8>::is_type_tracked());
+        assert!(!<(bool, f64)>::is_type_tracked());
+        assert!(!Cell::<u32>::is_type_tracked());
+        assert!(!RefCell::<String>::is_type_tracked());
+        assert!(Box::<dyn Trace>::is_type_tracked());
+        assert!(RefCell::<Box::<dyn Trace>>::is_type_tracked());
+        assert!(RefCell::<Vec::<Box::<dyn Trace>>>::is_type_tracked());
+        assert!(Vec::<RefCell::<Box::<dyn Trace>>>::is_type_tracked());
+        assert!(!Cc::<u8>::is_type_tracked());
+        assert!(!Vec::<Cc::<u8>>::is_type_tracked());
+    }
+
+    #[test]
+    fn test_is_cyclic_type_tracked() {
+        type C1 = RefCell<Option<Rc<Box<S1>>>>;
+        struct S1(C1);
+        impl Trace for S1 {
+            fn trace(&self, t: &mut Tracer) {
+                self.0.trace(t);
+            }
+            fn is_type_tracked() -> bool {
+                // This is not an infinite loop because Rc is not tracked.
+                C1::is_type_tracked()
+            }
+        }
+
+        type C2 = RefCell<Option<Cc<Box<S2>>>>;
+        struct S2(C2);
+        impl Trace for S2 {
+            fn trace(&self, t: &mut Tracer) {
+                self.0.trace(t);
+            }
+            fn is_type_tracked() -> bool {
+                // C2::is_type_tracked() can cause an infinite loop.
+                true
+            }
+        }
+
+        assert!(!S1::is_type_tracked());
+        assert!(S2::is_type_tracked());
+    }
 }
