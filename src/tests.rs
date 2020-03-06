@@ -12,7 +12,11 @@ use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 fn test_simple_untracked() {
     static DROPPED: AtomicBool = AtomicBool::new(false);
     struct X(&'static str);
-    crate::trace_acyclic!(X);
+    impl Trace for X {
+        fn is_type_tracked() -> bool {
+            false
+        }
+    }
     impl Drop for X {
         fn drop(&mut self) {
             DROPPED.store(true, SeqCst);
@@ -34,7 +38,11 @@ fn test_simple_untracked() {
 fn test_simple_tracked() {
     static DROPPED: AtomicBool = AtomicBool::new(false);
     struct X(&'static str);
-    crate::trace_fields!(X {});
+    impl Trace for X {
+        fn is_type_tracked() -> bool {
+            true
+        }
+    }
     impl Drop for X {
         fn drop(&mut self) {
             DROPPED.store(true, SeqCst);

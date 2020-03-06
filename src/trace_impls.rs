@@ -1,7 +1,6 @@
 use crate::trace::{Trace, Tracer};
 use std::any::Any;
 
-#[macro_export]
 /// Mark types as acyclic. Opt-out the cycle collector.
 ///
 /// See [`Trace::is_type_tracked`](trait.Trace.html#method.is_type_tracked) for details.
@@ -30,11 +29,10 @@ macro_rules! trace_acyclic {
         }
     };
     ( $( $t: ty ),* ) => {
-        $( $crate::trace_acyclic!(<> $t); )*
+        $( trace_acyclic!(<> $t); )*
     };
 }
 
-#[macro_export]
 /// Implement [`Trace`](trait.Trace.html) for simple container types.
 ///
 /// ## Examples

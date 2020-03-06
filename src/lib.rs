@@ -18,13 +18,18 @@
 //! use gcmodule::Cc;
 //! let foo = Cc::new(vec![1, 2, 3]);
 //! let foo_cloned = foo.clone();
+//!
 //! // foo and foo_cloned both point to the same `vec![1, 2, 3]`.
 //! assert!(std::ptr::eq(&foo[0], &foo_cloned[0]));
 //! ```
 //!
 //! ## Collecting cycles
 //!
-//! Use [`collect_thread_cycles()`](fn.collect_thread_cycles.html) to collect thread-local garbage.
+//! Use [`collect_thread_cycles()`](fn.collect_thread_cycles.html) to collect
+//! thread-local garbage.
+//!
+//! Use [`count_thread_tracked()`](fn.count_thread_tracked.html) to count how
+//! many objects are tracked by the collector.
 //!
 //! ```
 //! use gcmodule::{Cc, Trace};
@@ -40,30 +45,38 @@
 //! // a and b form circular references. The objects they point to are not
 //! // dropped automatically, despite both variables run out of scope.
 //!
-//! gcmodule::collect_thread_cycles();  // This will drop a and b.
+//! assert_eq!(gcmodule::count_thread_tracked(), 2);   // 2 values are tracked.
+//! assert_eq!(gcmodule::collect_thread_cycles(), 2);  // This will drop a and b.
+//! assert_eq!(gcmodule::count_thread_tracked(), 0);   // no values are tracked.
 //! ```
 //!
 //! ## Defining new types
 //!
 //! [`Cc<T>`](struct.Cc.html) requires [`Trace`](trait.Trace.html) implemented
-//! for `T` so the collector knows how values are referred.
+//! for `T` so the collector knows how values are referred. That can usually
+//! be done by `#[derive(Trace)]`.
 //!
 //! ### Acyclic types
 //!
-//! Types that can never be part of a reference cycle can opt-out the cycle
-//! collector for performance. This can be done by using the
-//!  [`trace_acyclic!`](macro.trace_acyclic.html) macro:
+//! If a type is acyclic (cannot form reference circles about [`Cc`](struct.Cc.html)),
+//! [`Trace::is_type_tracked()`](trait.Trace.html#method.is_type_tracked) will return `false`.
 //!
 //! ```
-//! use gcmodule::{Cc, trace_acyclic};
+//! use gcmodule::{Cc, Trace};
 //!
+//! #[derive(Trace)]
 //! struct Foo(String);
+//!
+//! #[derive(Trace)]
 //! struct Bar;
-//! trace_acyclic!(Foo, Bar); // Opt-out cycle collector. Ref-count still works.
+//!
+//! assert!(!Foo::is_type_tracked()); // Acyclic
+//! assert!(!Bar::is_type_tracked()); // Acyclic
 //!
 //! let foo = Cc::new(Foo("abc".to_string()));
 //! let bar = Cc::new(Bar);
 //! let foo_cloned = foo.clone(); // Share the same `"abc"` with `foo`.
+//! assert_eq!(gcmodule::count_thread_tracked(), 0); // The collector tracks nothing.
 //! drop(foo); // The ref count of `"abc"` drops from 2 to 1.
 //! drop(foo_cloned); // `"abc"` will be dropped here..
 //! # drop(bar);
@@ -71,39 +84,39 @@
 //!
 //! ### Container types
 //!
-//! Container types  need to implement [`Trace`](trait.Trace.html) to specify
-//! how to visit referred [`Cc`](struct.Cc.html) values.
+//! Whether a container type is acyclic or not depends on its fields. Usually,
+//! types without referring to trait objects or itself are considered acyclic.
 //!
 //! ```
-//! use gcmodule::{Cc, Trace, Tracer};
-//! struct Foo<T1, T2>(T1, T2, u8);
+//! use gcmodule::{Cc, Trace};
 //!
-//! impl<T1: Trace, T2: Trace> Trace for Foo<T1, T2> {
-//!     fn trace(&self, tracer: &mut Tracer) {
-//!         self.0.trace(tracer);
-//!         self.1.trace(tracer);
-//!     }
+//! #[derive(Trace)]
+//! struct Foo<T1: Trace, T2: Trace>(T1, T2, u8);
 //!
-//!     // `is_type_tracked` is optional. But it can help performance.
-//!     fn is_type_tracked() -> bool {
-//!         T1::is_type_tracked() && T2::is_type_tracked()
-//!     }
+//! // `a` is not tracked - types are acyclic.
+//! let a = Cc::new(Foo(Foo(Cc::new(1), 2, 3), Cc::new("abc"), 10));
+//! assert_eq!(gcmodule::count_thread_tracked(), 0);
+//!
+//! // `b` is tracked because it contains a trait object.
+//! let b = Cc::new(Foo(Box::new(1) as Box<dyn Trace>, 2, 3));
+//! assert_eq!(gcmodule::count_thread_tracked(), 1);
+//! ```
+//!
+//! The `#[trace(skip)]` attribute can be used to skip tracking specified fields
+//! in a structure.
+//!
+//! ```
+//! use gcmodule::{Cc, Trace};
+//!
+//! struct AlienStruct; // Does not implement Trace
+//!
+//! #[derive(Trace)]
+//! struct Foo {
+//!     field: String,
+//!
+//!     #[trace(skip)]
+//!     alien: AlienStruct, // Field skipped in Trace implementation.
 //! }
-//!
-//! let foo = Cc::new(Foo(Foo(Cc::new(1), 2, 3), Cc::new("abc"), 10));
-//! # drop(foo);
-//! ```
-//!
-//! The [`trace_fields!`](macro.trace_fields.html) macro can be used to
-//! implement [`Trace`](trait.Trace.html) for simple structures.
-//!
-//! ```
-//! use gcmodule::{Cc, Trace, trace_fields};
-//! struct A<T1, T2>(T1, T2, u8);
-//! struct B<T1, T2> { x: T1, y: T2, z: Box<dyn Trace> };
-//!
-//! trace_fields!(A<T1, T2> { 0: T1, 1: T2 });
-//! trace_fields!(B<T1, T2> { x: T1, y: T2, z });
 //! ```
 //!
 //! # Technical Details
@@ -177,12 +190,11 @@
 //! ### Undefined behavior (UB)
 //!
 //! After the above panic (`bug: unexpected ref-count after dropping cycles`),
-//! dereferencing a garbage-collected [`Cc<T>`](struct.Cc.html) will:
+//! dereferencing a garbage-collected [`Cc<T>`](struct.Cc.html) will trigger
+//! `panic!` or UB depending on whether it's a debug build or not.
 //!
-//! #### On debug build
-//!
-//! Debug build has sanity checks on `Cc::<T>::deref()`. It will panic if `T`
-//! was garbage-collected:
+//! On debug build, sanity checks are added at `Cc::<T>::deref()`.
+//! It will panic if `T` was garbage-collected:
 //!
 //! ```plain,ignore
 //! bug: accessing a dropped CcBox detected
@@ -190,7 +202,7 @@
 //!
 //! In other words, no UB on debug build.
 //!
-//! On release build the dereference would access dropped values, which is
+//! On release build the dereference would access dropped values, which is an
 //! undefined behavior. Again, the UB can only happen if the [`Trace::trace`](trait.Trace.html#method.trace)
 //! is implemented wrong, and panic will happen before the UB.
 
