@@ -1,11 +1,11 @@
 use gcmodule::{Cc, Trace};
-use gcmodule_derive::Trace;
+use gcmodule_derive::Trace as DeriveTrace;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 #[test]
 fn test_named_struct() {
-    #[derive(Trace)]
+    #[derive(DeriveTrace)]
     struct S0 {
         a: u8,
         b: String,
@@ -13,7 +13,7 @@ fn test_named_struct() {
     }
     assert!(!S0::is_type_tracked());
 
-    #[derive(Trace)]
+    #[derive(DeriveTrace)]
     struct S1 {
         a: Option<Box<dyn Trace>>,
         b: (u32, u64),
@@ -23,14 +23,14 @@ fn test_named_struct() {
 
 #[test]
 fn test_type_parameters() {
-    #[derive(Trace)]
+    #[derive(DeriveTrace)]
     struct S0<T: Trace> {
         a: Option<T>,
     }
     assert!(!S0::<u8>::is_type_tracked());
     assert!(S0::<Box<dyn Trace>>::is_type_tracked());
 
-    #[derive(Trace)]
+    #[derive(DeriveTrace)]
     struct S1<T: Trace> {
         a: Option<Rc<T>>,
     }
@@ -40,7 +40,7 @@ fn test_type_parameters() {
 
 #[test]
 fn test_skip() {
-    #[derive(Trace)]
+    #[derive(DeriveTrace)]
     struct S2 {
         #[trace(skip)]
         _a: Option<Box<dyn Trace>>,
@@ -51,18 +51,18 @@ fn test_skip() {
 
 #[test]
 fn test_unnamed_struct() {
-    #[derive(Trace)]
+    #[derive(DeriveTrace)]
     struct S0(u8, String);
     assert!(!S0::is_type_tracked());
 
-    #[derive(Trace)]
+    #[derive(DeriveTrace)]
     struct S1(u8, Box<dyn Trace>);
     assert!(S1::is_type_tracked());
 }
 
 #[test]
 fn test_real_cycles() {
-    #[derive(Trace, Default)]
+    #[derive(DeriveTrace, Default)]
     struct S(RefCell<Option<Box<dyn Trace>>>);
     {
         let s1: Cc<S> = Default::default();

@@ -5,10 +5,9 @@
 //!
 //! ```
 //! use gcmodule_derive::Trace;
-//! use gcmodule::Trace;
 //!
 //! #[derive(Trace)]
-//! struct S<T: Trace> {
+//! struct S<T: gcmodule::Trace> {
 //!     a: String,
 //!     b: Option<T>,
 //!
