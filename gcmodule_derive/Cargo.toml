@@ -1,0 +1,18 @@
+[package]
+name = "gcmodule_derive"
+version = "0.2.0"
+authors = ["Jun Wu <quark@lihdd.net>"]
+edition = "2018"
+license = "MIT"
+description = "Generate code to implement Trace trait on structures."
+repository = "https://github.com/quark-zju/gcmodule"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1"
+syn = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+gcmodule = { path = ".." }

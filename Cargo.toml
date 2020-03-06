@@ -1,6 +1,6 @@
 [package]
 name = "gcmodule"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Jun Wu <quark@lihdd.net>"]
 edition = "2018"
 license = "MIT"
@@ -16,3 +16,8 @@ quickcheck = { version = "0.9", default-features = false }
 [features]
 nightly = []
 testutil = []
+
+[workspace]
+members = [
+  "gcmodule_derive",
+]
