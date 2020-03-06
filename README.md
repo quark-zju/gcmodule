@@ -26,6 +26,23 @@ drop(b); // Internal values are not dropped due to the cycle.
 gcmodule::collect_thread_cycles(); // Internal values are dropped.
 ```
 
+For customized structures, they need to implement the `Trace` interface. That can be done by `#[derive(Trace)]`.
+
+```rust
+use gcmodule::{Cc, Trace};
+use std::cell::RefCell;
+
+#[derive(Trace, Default)]
+struct List(RefCell<Vec<Box<dyn Trace>>>);
+{
+    let a: List = Default::default();
+    let b: List = Default::default();
+    a.borrow_mut().push(Box::new(b.clone()));
+    b.borrow_mut().push(Box::new(a.clone()));
+}
+assert_eq!(gcmodule::collect_thread_cycles(), 2); // 2 values are collected.
+```
+
 Refer to [documentation](https://docs.rs/gcmodule/) for more examples and technical details.
 
 ## Similar Projects

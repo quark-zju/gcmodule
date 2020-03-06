@@ -210,6 +210,9 @@ pub use cc::Cc;
 pub use collect::collect_thread_cycles;
 pub use trace::{Trace, Tracer};
 
+#[cfg(feature = "derive")]
+pub use gcmodule_derive::Trace;
+
 #[cfg(not(test))]
 mod debug {
     use std::cell::Cell;
