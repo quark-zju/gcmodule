@@ -23,6 +23,7 @@ fn test_simple_untracked() {
         {
             let v2 = v1.clone();
             assert_eq!(v1.deref().0, v2.deref().0);
+            assert_eq!(collect::count_thread_tracked(), 0);
         }
         assert!(!DROPPED.load(SeqCst));
     }
@@ -44,6 +45,7 @@ fn test_simple_tracked() {
         {
             let v2 = v1.clone();
             assert_eq!(v1.deref().0, v2.deref().0);
+            assert_eq!(collect::count_thread_tracked(), 1);
         }
         assert!(!DROPPED.load(SeqCst));
     }
@@ -66,8 +68,10 @@ fn test_simple_cycles() {
             b.push(Box::new(a.clone()));
         }
         assert_eq!(collect::collect_thread_cycles(), 0);
+        assert_eq!(collect::count_thread_tracked(), 2);
     }
     assert_eq!(collect::collect_thread_cycles(), 2);
+    assert_eq!(collect::count_thread_tracked(), 0);
 }
 
 #[test]

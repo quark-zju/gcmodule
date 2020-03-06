@@ -207,7 +207,7 @@ mod trace;
 mod trace_impls;
 
 pub use cc::Cc;
-pub use collect::collect_thread_cycles;
+pub use collect::{collect_thread_cycles, count_thread_tracked};
 pub use trace::{Trace, Tracer};
 
 #[cfg(feature = "derive")]

@@ -22,6 +22,17 @@ pub fn collect_thread_cycles() -> usize {
     })
 }
 
+/// Count number of objects tracked by the collector in the current thread.
+/// Return the number of objects tracked.
+pub fn count_thread_tracked() -> usize {
+    GC_LIST.with(|list| {
+        let list: &GcHeader = { &list.borrow() };
+        let mut count = 0;
+        visit_list(list, |_| count += 1);
+        count
+    })
+}
+
 thread_local!(pub(crate) static GC_LIST: RefCell<Pin<Box<GcHeader>>> = RefCell::new(new_gc_list()));
 
 /// Create an empty linked list with a dummy GcHeader.
