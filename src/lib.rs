@@ -148,9 +148,9 @@
 //! ```plain,ignore
 //! Shared T with GcHeader
 //! +------------------+
-//! | gc_prev: pointer | ---> The GcHeader chain into a linked list.
+//! | gc_prev: pointer | ---> GcHeader in a linked list.
 //! | gc_next: pointer |
-//! | vptr<T>: pointer | ---> The virtual table pointer about `T as Trace`.
+//! | vptr<T>: pointer | ---> Pointer to the `&T as &dyn Trace` virtual table.
 //! |------------------|
 //! | ref_count: usize | <--- Cc<T>
 //! | ---------------- |
