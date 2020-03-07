@@ -486,6 +486,20 @@ impl Cc<dyn Trace> {
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         self.deref().as_any().and_then(|any| any.downcast_ref())
     }
+
+    /// Attempt to downcast to the specified `Cc<T>` type.
+    pub fn downcast<T: Trace>(self) -> Result<Cc<T>, Cc<dyn Trace>> {
+        if self.downcast_ref::<T>().is_some() {
+            // safety: type T is checked above. The first pointer of the fat
+            // pointer (Cc<dyn Trace>) matches the raw CcBox pointer.
+            let fat_ptr: (*mut CcBox<T>, *mut ()) = unsafe { mem::transmute(self) };
+            let non_null = unsafe { NonNull::new_unchecked(fat_ptr.0) };
+            let result: Cc<T> = Cc(non_null);
+            Ok(result)
+        } else {
+            Err(self)
+        }
+    }
 }
 
 #[cfg(feature = "nightly")]
@@ -535,9 +549,14 @@ mod tests {
 
     #[test]
     fn test_dyn_downcast() {
-        let v: Cc<dyn Trace> = Cc::new(vec![1u8, 2, 3]).into_dyn();
+        let v: Cc<Vec<u8>> = Cc::new(vec![1u8, 2, 3]);
+        let v: Cc<dyn Trace> = v.into_dyn();
         let downcasted: &Vec<u8> = v.downcast_ref().unwrap();
         assert_eq!(downcasted, &vec![1, 2, 3]);
+
+        let v = v.downcast::<usize>().map(|_| panic!()).unwrap_err();
+        let v: Cc<Vec<u8>> = v.downcast().map_err(|_| panic!()).unwrap();
+        assert_eq!(v.deref(), &vec![1, 2, 3]);
     }
 
     #[cfg(feature = "nightly")]
