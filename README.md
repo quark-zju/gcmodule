@@ -8,7 +8,7 @@ Garbage collection inspired by [CPython](https://github.com/python/cpython/)'s i
 
 This library provides a type `Cc<T>`. It provides shared reference-counting pointer, similar to stdlib `Rc<T>`. Unlike `Rc`, reference cycles in `Cc` can be collected.
 
-If all values (`T`s) can be freed by just reference-counting, the collector used by this library does not take extra memory. This is different from some other implementations, which require manual collection to free the extra memory used by the collector.
+If all values can be freed by just reference-counting, the collector used by this library does not take extra memory. This is different from some other implementations, which require manual collection to free the extra memory used by the collector.
 
 ## Example
 
@@ -43,7 +43,7 @@ struct List(RefCell<Vec<Box<dyn Trace>>>);
 assert_eq!(gcmodule::collect_thread_cycles(), 2); // 2 values are collected.
 ```
 
-Refer to [documentation](https://docs.rs/gcmodule/) for more examples and technical details.
+Refer to [the documentation](https://docs.rs/gcmodule/) for more examples and technical details.
 
 ## Similar Projects
 
