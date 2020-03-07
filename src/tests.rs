@@ -305,6 +305,65 @@ collect: collect_thread_cycles, 0 unreachable objects"#
     );
 }
 
+#[test]
+fn test_cow_update() {
+    // Update on a unique value.
+    let log = debug::capture_log(|| {
+        let mut cc = Cc::new(30);
+        cc.cow_update(|i| *i = *i + 1);
+        assert_eq!(cc.deref(), &31);
+    });
+    assert_eq!(log, "\n0: new (CcBox), drop (0), drop (T), drop (CcBox)");
+
+    // Update on a non-unique value.
+    let log = debug::capture_log(|| {
+        debug::NEXT_DEBUG_NAME.with(|n| n.set(0));
+        let cc1 = Cc::new(30);
+        let mut cc2 = cc1.clone();
+        debug::NEXT_DEBUG_NAME.with(|n| n.set(3));
+        cc2.cow_update(|i| *i = *i + 1);
+        assert_eq!(cc1.deref(), &30);
+        assert_eq!(cc2.deref(), &31);
+    });
+    assert_eq!(
+        log,
+        r#"
+0: new (CcBox), clone (2)
+3: new (CcBox)
+0: drop (1)
+3: drop (0), drop (T), drop (CcBox)
+0: drop (0), drop (T), drop (CcBox)"#
+    );
+
+    // Update on a tracked, non-unique value.
+    let log = debug::capture_log(|| {
+        #[derive(Clone)]
+        struct V(usize);
+        impl Trace for V {
+            fn is_type_tracked() -> bool {
+                true
+            }
+        }
+
+        debug::NEXT_DEBUG_NAME.with(|n| n.set(0));
+        let cc1: Cc<V> = Cc::new(V(30));
+        let mut cc2 = cc1.clone();
+        debug::NEXT_DEBUG_NAME.with(|n| n.set(3));
+        cc2.cow_update(|i| i.0 = i.0 + 1);
+        assert_eq!(cc1.deref().0, 30);
+        assert_eq!(cc2.deref().0, 31);
+    });
+    assert_eq!(
+        log,
+        r#"
+0: new (CcBoxWithGcHeader), clone (2)
+3: new (CcBoxWithGcHeader)
+0: drop (1)
+3: drop (0), drop (T), drop (CcBoxWithGcHeader)
+0: drop (0), drop (T), drop (CcBoxWithGcHeader)"#
+    );
+}
+
 #[derive(Default)]
 struct DuplicatedVisits {
     a: RefCell<Option<Box<dyn Trace>>>,

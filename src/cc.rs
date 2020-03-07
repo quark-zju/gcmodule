@@ -8,6 +8,7 @@ use std::cell::UnsafeCell;
 use std::mem;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
+use std::ops::DerefMut;
 use std::panic::UnwindSafe;
 use std::ptr::NonNull;
 
@@ -251,6 +252,25 @@ impl<T: Trace> Cc<T> {
     }
 }
 
+impl<T: Trace + Clone> Cc<T> {
+    /// Update the value `T` in a copy-on-write way.
+    ///
+    /// If the ref count is 1, the value is updated in-place.
+    /// Otherwise a new `Cc<T>` will be created.
+    pub fn cow_update(&mut self, mut update_func: impl FnMut(&mut T)) {
+        let need_clone = self.ref_count() > 1;
+        if need_clone {
+            let mut value = <Cc<T>>::deref(self).clone();
+            update_func(&mut value);
+            *self = Cc::new(value);
+        } else {
+            let value_ptr: *mut ManuallyDrop<T> = self.inner().value.get();
+            let value_mut: &mut T = unsafe { &mut *value_ptr }.deref_mut();
+            update_func(value_mut);
+        }
+    }
+}
+
 impl<T: ?Sized> CcBox<T> {
     #[inline]
     fn is_tracked(&self) -> bool {
@@ -334,7 +354,7 @@ impl<T: ?Sized> CcBox<T> {
 impl<T: ?Sized> Cc<T> {
     #[inline]
     pub(crate) fn inner(&self) -> &CcBox<T> {
-        // safety: CcBox liftetime maintained by ref count. Pointer is valid.
+        // safety: CcBox lifetime maintained by ref count. Pointer is valid.
         unsafe { self.0.as_ref() }
     }
 
