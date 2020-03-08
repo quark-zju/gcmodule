@@ -222,6 +222,30 @@ pub use cc::Cc;
 pub use collect::{collect_thread_cycles, count_thread_tracked};
 pub use trace::{Trace, Tracer};
 
+/// Derive [`Trace`](trait.Trace.html) implementation for a structure.
+///
+/// # Examples
+///
+/// ```
+/// use gcmodule::{Cc, Trace};
+///
+/// #[derive(Trace)]
+/// struct S1(u32, String);
+///
+/// #[derive(Trace)]
+/// struct S2<T1: Trace, T2: Trace>(T1, T2, u8);
+///
+/// #[derive(Trace)]
+/// struct S3<T: Trace> {
+///     a: S1,
+///     b: Option<S2<T, u8>>,
+///
+///     #[trace(skip)]
+///     c: AlienStruct,  // c is not tracked by the collector.
+/// }
+///
+/// struct AlienStruct;
+/// ```
 #[cfg(feature = "derive")]
 pub use gcmodule_derive::Trace;
 
