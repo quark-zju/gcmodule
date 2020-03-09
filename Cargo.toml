@@ -1,6 +1,6 @@
 [package]
 name = "gcmodule"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Jun Wu <quark@lihdd.net>"]
 edition = "2018"
 license = "MIT"
@@ -14,7 +14,7 @@ readme = "README.md"
 quickcheck = { version = "0.9", default-features = false }
 
 [dependencies]
-gcmodule_derive = { version = "=0.2.2", optional = true, path = "gcmodule_derive" }
+gcmodule_derive = { version = "=0.2.3", optional = true, path = "gcmodule_derive" }
 
 [features]
 default = ["derive"]
