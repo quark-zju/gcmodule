@@ -256,10 +256,41 @@ mod vec {
 
 mod func {
     trace_acyclic!(<X> fn() -> X);
+
+    trace_acyclic!(<A, X> fn(&A) -> X);
     trace_acyclic!(<A, X> fn(A) -> X);
+
+    trace_acyclic!(<A, B, X> fn(&A, &B) -> X);
+    trace_acyclic!(<A, B, X> fn(A, &B) -> X);
+    trace_acyclic!(<A, B, X> fn(&A, B) -> X);
     trace_acyclic!(<A, B, X> fn(A, B) -> X);
+
+    trace_acyclic!(<A, B, C, X> fn(&A, &B, &C) -> X);
+    trace_acyclic!(<A, B, C, X> fn(A, &B, &C) -> X);
+    trace_acyclic!(<A, B, C, X> fn(&A, B, &C) -> X);
+    trace_acyclic!(<A, B, C, X> fn(A, B, &C) -> X);
+    trace_acyclic!(<A, B, C, X> fn(&A, &B, C) -> X);
+    trace_acyclic!(<A, B, C, X> fn(A, &B, C) -> X);
+    trace_acyclic!(<A, B, C, X> fn(&A, B, C) -> X);
     trace_acyclic!(<A, B, C, X> fn(A, B, C) -> X);
+
+    trace_acyclic!(<A, B, C, D, X> fn(&A, &B, &C, &D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(A, &B, &C, &D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(&A, B, &C, &D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(A, B, &C, &D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(&A, &B, C, &D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(A, &B, C, &D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(&A, B, C, &D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(A, B, C, &D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(&A, &B, &C, D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(A, &B, &C, D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(&A, B, &C, D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(A, B, &C, D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(&A, &B, C, D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(A, &B, C, D) -> X);
+    trace_acyclic!(<A, B, C, D, X> fn(&A, B, C, D) -> X);
     trace_acyclic!(<A, B, C, D, X> fn(A, B, C, D) -> X);
+
     trace_acyclic!(<A, B, C, D, E, X> fn(A, B, C, D, E) -> X);
     trace_acyclic!(<A, B, C, D, E, F, X> fn(A, B, C, D, E, F) -> X);
 }
