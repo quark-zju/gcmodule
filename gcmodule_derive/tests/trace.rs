@@ -74,3 +74,11 @@ fn test_real_cycles() {
     }
     assert_eq!(gcmodule::collect_thread_cycles(), 3);
 }
+
+#[test]
+fn test_as_any() {
+    #[derive(DeriveTrace)]
+    struct S;
+    let s = S;
+    assert!(s.as_any().unwrap().downcast_ref::<S>().is_some());
+}
