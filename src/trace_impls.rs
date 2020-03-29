@@ -167,7 +167,8 @@ mod collections {
 
     impl<K: Trace, V: Trace> Trace for collections::BTreeMap<K, V> {
         fn trace(&self, tracer: &mut Tracer) {
-            for (_, v) in self {
+            for (k, v) in self {
+                k.trace(tracer);
                 v.trace(tracer);
             }
         }
@@ -184,7 +185,8 @@ mod collections {
 
     impl<K: Eq + hash::Hash + Trace, V: Trace> Trace for collections::HashMap<K, V> {
         fn trace(&self, tracer: &mut Tracer) {
-            for (_, v) in self {
+            for (k, v) in self {
+                k.trace(tracer);
                 v.trace(tracer);
             }
         }
