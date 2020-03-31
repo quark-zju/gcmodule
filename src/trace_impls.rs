@@ -428,9 +428,8 @@ mod sync {
 
     impl<T: Trace> Trace for sync::Mutex<T> {
         fn trace(&self, tracer: &mut Tracer) {
-            if let Ok(x) = self.try_lock() {
-                x.trace(tracer);
-            }
+            let x = self.lock().unwrap();
+            x.trace(tracer);
         }
 
         #[inline]
@@ -445,9 +444,8 @@ mod sync {
 
     impl<T: Trace> Trace for sync::RwLock<T> {
         fn trace(&self, tracer: &mut Tracer) {
-            if let Ok(x) = self.try_read() {
-                x.trace(tracer);
-            }
+            let x = self.read().unwrap();
+            x.trace(tracer);
         }
 
         #[inline]

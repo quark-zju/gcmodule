@@ -206,13 +206,14 @@
 //! undefined behavior. Again, the UB can only happen if the [`Trace::trace`](trait.Trace.html#method.trace)
 //! is implemented wrong, and panic will happen before the UB.
 
-// mod acc;
 mod cc;
 mod cc_impls;
 mod collect;
 #[cfg(test)]
 mod debug;
 mod mutable_usize;
+#[cfg(feature = "sync")]
+mod sync;
 #[cfg(test)]
 mod tests;
 #[cfg(any(test, feature = "testutil"))]
