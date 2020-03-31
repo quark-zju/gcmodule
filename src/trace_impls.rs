@@ -256,6 +256,9 @@ mod vec {
     }
 }
 
+// See https://github.com/rust-lang/rust/issues/56105#issuecomment-465709105
+#[allow(unknown_lints)]
+#[allow(coherence_leak_check)]
 mod func {
     trace_acyclic!(<X> fn() -> X);
 
@@ -426,6 +429,9 @@ mod tests {
         assert!(Vec::<RefCell::<Box::<dyn Trace>>>::is_type_tracked());
         assert!(!Cc::<u8>::is_type_tracked());
         assert!(!Vec::<Cc::<u8>>::is_type_tracked());
+
+        assert!(!<fn(u8) -> u8>::is_type_tracked());
+        assert!(!<fn(&u8) -> u8>::is_type_tracked());
     }
 
     #[test]
