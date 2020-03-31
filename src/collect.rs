@@ -4,9 +4,9 @@
 
 // NOTE: Consider adding generation support if necessary. It won't be too hard.
 
+use crate::cc::CcDummy;
 use crate::cc::CcDyn;
 use crate::cc::GcClone;
-use crate::cc::GcHeader;
 use crate::debug;
 use crate::mutable_usize::Usize;
 use crate::Cc;
@@ -156,6 +156,40 @@ impl CcObjectSpace {
 impl Drop for CcObjectSpace {
     fn drop(&mut self) {
         self.collect_cycles();
+    }
+}
+
+/// Internal metadata used by the cycle collector.
+#[repr(C)]
+pub struct GcHeader {
+    pub(crate) next: Cell<*const GcHeader>,
+    pub(crate) prev: Cell<*const GcHeader>,
+
+    /// Vtable of (`&CcBox<T> as &dyn CcDyn`)
+    pub(crate) ccdyn_vptr: Cell<*mut ()>,
+}
+
+impl GcHeader {
+    /// Create an empty header.
+    pub(crate) fn empty() -> Self {
+        Self {
+            next: Cell::new(std::ptr::null()),
+            prev: Cell::new(std::ptr::null()),
+            ccdyn_vptr: Cell::new(CcDummy::ccdyn_vptr()),
+        }
+    }
+
+    /// Get the trait object to operate on the actual `CcBox`.
+    pub(crate) fn value(&self) -> &dyn CcDyn {
+        // safety: To build trait object from self and vtable pointer.
+        // Test by test_gc_header_value_consistency().
+        unsafe {
+            let fat_ptr: (*const (), *mut ()) = (
+                (self as *const GcHeader).offset(1) as _,
+                self.ccdyn_vptr.get(),
+            );
+            mem::transmute(fat_ptr)
+        }
     }
 }
 
