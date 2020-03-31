@@ -67,6 +67,18 @@ pub(crate) struct CcBoxWithGcHeader<T: ?Sized> {
 /// with cyclic garbage collection.
 ///
 /// See [module level documentation](index.html) for more details.
+///
+/// [`Cc`](struct.Cc.html) is not thread-safe. It does not implement `Send`
+/// or `Sync`:
+///
+/// ```compile_fail
+/// use std::ops::Deref;
+/// use gcmodule::Cc;
+/// let cc = Cc::new(5);
+/// std::thread::spawn(move || {
+///     println!("{}", cc.deref());
+/// });
+/// ```
 pub struct Cc<T: ?Sized>(NonNull<CcBox<T>>);
 
 // `ManuallyDrop<T>` does not implement `UnwindSafe`. But `CcBox::drop` does
