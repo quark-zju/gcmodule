@@ -61,8 +61,8 @@ pub(crate) struct CcBox<T: ?Sized, O: ObjectSpace> {
 /// This is a private type.
 #[repr(C)]
 pub struct GcHeaderWithExtras<O: ObjectSpace> {
-    pub(crate) gc_header: GcHeader,
     pub(crate) extras: O::Extras,
+    pub(crate) gc_header: GcHeader,
 }
 
 /// The real layout if `T` is tracked by the collector. The main APIs still use
@@ -459,6 +459,7 @@ impl<T: ?Sized, O: ObjectSpace> Drop for AbstractCc<T, O> {
     fn drop(&mut self) {
         let old_ref_count = self.dec_ref();
         debug::log(|| (self.debug_name(), format!("drop ({})", self.ref_count())));
+        debug_assert!((old_ref_count >> REF_COUNT_SHIFT) >= 1);
         if (old_ref_count >> REF_COUNT_SHIFT) == 1 {
             // safety: CcBox lifetime maintained by ref count.
             drop_ccbox(unsafe { self.0.as_mut() });
@@ -576,7 +577,7 @@ unsafe fn cast_box<T: ?Sized, O: ObjectSpace>(
     // ptr can be "thin" (1 pointer) or "fat" (2 pointers).
     // Change the first byte to point to the GcHeader.
     let pptr: *mut *const CcBox<T, O> = &mut ptr;
-    let pptr: *mut *const GcHeader = pptr as _;
+    let pptr: *mut *const GcHeaderWithExtras<O> = pptr as _;
     *pptr = (*pptr).offset(-1);
     let ptr: *mut AbstractCcBoxWithGcHeader<T, O> = mem::transmute(ptr);
     Box::from_raw(ptr)

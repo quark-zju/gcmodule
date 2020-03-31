@@ -10,6 +10,7 @@ use std::mem;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 
 /// An atomic reference-counting pointer that integrates
 /// with cyclic garbage collection.
@@ -24,7 +25,8 @@ unsafe impl<T: Send + Sync> Sync for Acc<T> {}
 
 pub struct AccObjectSpace {
     /// Linked list to the tracked objects.
-    pub(crate) list: ReentrantMutex<Pin<Box<GcHeader>>>,
+    list: Pin<Box<GcHeader>>,
+    lock: Arc<ReentrantMutex<()>>,
 }
 
 // safety: accesses are protected by mutex
@@ -33,11 +35,13 @@ unsafe impl Sync for AccObjectSpace {}
 
 impl ObjectSpace for AccObjectSpace {
     type RefCount = AtomicUsize;
-    type Extras = ();
+    type Extras = Arc<ReentrantMutex<()>>;
 
     fn insert(&self, header: &GcHeaderWithExtras<Self>, value: &dyn CcDyn) {
+        debug_assert!(Arc::ptr_eq(&header.extras, &self.lock));
+        let _locked = self.lock.lock();
         let header: &GcHeader = &header.gc_header;
-        let prev: &GcHeader = &self.list.lock();
+        let prev: &GcHeader = &self.list;
         debug_assert!(header.next.get().is_null());
         let next = prev.next.get();
         header.prev.set(prev.deref());
@@ -54,6 +58,7 @@ impl ObjectSpace for AccObjectSpace {
 
     #[inline]
     fn remove(header: &GcHeaderWithExtras<Self>) {
+        let _locked = header.extras.lock();
         let header: &GcHeader = &header.gc_header;
         debug_assert!(!header.next.get().is_null());
         debug_assert!(!header.prev.get().is_null());
@@ -68,7 +73,7 @@ impl ObjectSpace for AccObjectSpace {
     }
 
     fn default_extras(&self) -> Self::Extras {
-        ()
+        self.lock.clone()
     }
 }
 
@@ -77,7 +82,8 @@ impl Default for AccObjectSpace {
     fn default() -> Self {
         let header = collect::new_gc_list();
         Self {
-            list: ReentrantMutex::new(header),
+            list: header,
+            lock: Arc::new(ReentrantMutex::new(())),
         }
     }
 }
@@ -85,7 +91,8 @@ impl Default for AccObjectSpace {
 impl AccObjectSpace {
     /// Count objects tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     pub fn count_tracked(&self) -> usize {
-        let list: &GcHeader = &self.list.lock();
+        let _locked = self.lock.lock();
+        let list: &GcHeader = &self.list;
         let mut count = 0;
         collect::visit_list(list, |_| count += 1);
         count
@@ -94,7 +101,8 @@ impl AccObjectSpace {
     /// Collect cyclic garbage tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     /// Return the number of objects collected.
     pub fn collect_cycles(&self) -> usize {
-        let list: &GcHeader = &self.list.lock();
+        let _locked = self.lock.lock();
+        let list: &GcHeader = &self.list;
         collect::collect_list(list)
     }
 
@@ -108,25 +116,73 @@ impl AccObjectSpace {
     /// [`AccObjectSpace`](struct.AccObjectSpace.html), the cyclic collector
     /// will not be able to collect cycles.
     pub fn create<T: Trace>(&self, value: T) -> Acc<T> {
+        // Lock will be taken by ObjectSpace::insert.
         Acc::new_in_space(value, self)
     }
-
-    // TODO: Consider implementing "merge" or method to collect multiple spaces
-    // together, to make it easier to support generational collection.
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::debug;
     use crate::Trace;
     use std::sync::mpsc::channel;
-    use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread::spawn;
 
     type List = Acc<Mutex<Vec<Box<dyn Trace + Send + Sync>>>>;
 
-    fn test_threads(
+    fn test_cross_thread_cycle(n: usize) {
+        let list: Arc<Mutex<Vec<List>>> = Arc::new(Mutex::new(Vec::with_capacity(n)));
+        let space = Arc::new(AccObjectSpace::default());
+        assert_eq!(space.count_tracked(), 0);
+
+        let spawn_thread = |name| {
+            let value = Mutex::new(Vec::new());
+            let space = space.clone();
+            let list = list.clone();
+            spawn(move || {
+                debug::NEXT_DEBUG_NAME.with(|n| n.set(name));
+                let this: List = space.create(value);
+                let mut list = list.lock().unwrap();
+                for other in list.iter_mut() {
+                    let cloned_other = other.clone();
+                    let cloned_this = this.clone();
+                    this.lock().unwrap().push(Box::new(cloned_other));
+                    other.lock().unwrap().push(Box::new(cloned_this));
+                }
+                list.push(this);
+            })
+        };
+
+        let threads: Vec<_> = (0..n).map(|i| spawn_thread(i)).collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        assert_eq!(space.count_tracked(), n);
+        assert_eq!(space.collect_cycles(), 0);
+
+        drop(list);
+        assert_eq!(space.collect_cycles(), n);
+    }
+
+    #[test]
+    fn test_2_thread_cycle() {
+        test_cross_thread_cycle(2);
+    }
+
+    #[test]
+    fn test_17_thread_cycle() {
+        test_cross_thread_cycle(17);
+    }
+
+    #[test]
+    fn test_100_thread_cycle() {
+        test_cross_thread_cycle(100);
+    }
+
+    fn test_racy_threads(
         thread_count: usize,
         iteration_count: usize,
         create_cycles_bits: u32,
@@ -148,8 +204,9 @@ mod tests {
                 let space = space.clone();
                 let tx_list = tx_list.clone();
                 spawn(move || {
-                    for _ in 0..iteration_count {
+                    for k in 0..iteration_count {
                         {
+                            debug::NEXT_DEBUG_NAME.with(|n| n.set((i + 1) * 1000 + k));
                             let value = Mutex::new(Vec::new());
                             let acc: List = Acc::new_in_space(value, &space);
                             {
@@ -184,17 +241,17 @@ mod tests {
     }
 
     #[test]
-    fn test_threads_racy_drops() {
-        test_threads(32, 1000, 0, 0);
+    fn test_racy_threads_racy_drops() {
+        test_racy_threads(32, 1000, 0, 0);
     }
 
     #[test]
-    fn test_threads_collects() {
-        test_threads(8, 100, 0xff, 0xff);
+    fn test_racy_threads_collects() {
+        test_racy_threads(8, 100, 0xff, 0xff);
     }
 
     #[test]
-    fn test_threads_mixed_collects() {
-        test_threads(8, 100, 0b11110000, 0b10101010);
+    fn test_racy_threads_mixed_collects() {
+        test_racy_threads(8, 100, 0b11110000, 0b10101010);
     }
 }
