@@ -4,13 +4,18 @@
 
 // NOTE: Consider adding generation support if necessary. It won't be too hard.
 
+use crate::cc::CcDyn;
 use crate::cc::GcClone;
 use crate::cc::GcHeader;
+use crate::cc::GcHeaderWithExtras;
 use crate::debug;
+use crate::mutable_usize::Usize;
 use crate::Cc;
 use crate::Trace;
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::marker::PhantomData;
+use std::mem;
 use std::ops::Deref;
 use std::pin::Pin;
 
@@ -20,10 +25,10 @@ use std::pin::Pin;
 /// # Example
 ///
 /// ```
-/// use gcmodule::{Cc, ObjectSpace, Trace};
+/// use gcmodule::{Cc, CcObjectSpace, Trace};
 /// use std::cell::RefCell;
 ///
-/// let mut space = ObjectSpace::default();
+/// let mut space = CcObjectSpace::default();
 /// assert_eq!(space.count_tracked(), 0);
 ///
 /// {
@@ -39,7 +44,7 @@ use std::pin::Pin;
 /// ```
 ///
 /// Use [`Cc::new_in_space`](struct.Cc.html#method.new_in_space).
-pub struct ObjectSpace {
+pub struct CcObjectSpace {
     /// Linked list to the tracked objects.
     pub(crate) list: RefCell<Pin<Box<GcHeader>>>,
 
@@ -49,7 +54,62 @@ pub struct ObjectSpace {
     _phantom: PhantomData<Cc<()>>,
 }
 
-impl Default for ObjectSpace {
+/// This is a private type.
+pub trait ObjectSpace: 'static + Sized {
+    type RefCount: Usize;
+    type Extras;
+
+    /// Insert "header" and "value" to the linked list.
+    fn insert(&self, header: &GcHeaderWithExtras<Self>, value: &dyn CcDyn);
+
+    /// Remove from linked list.
+    fn remove(header: &GcHeaderWithExtras<Self>);
+
+    fn default_extras(&self) -> Self::Extras;
+}
+
+impl ObjectSpace for CcObjectSpace {
+    type RefCount = Cell<usize>;
+    type Extras = ();
+
+    fn insert(&self, header: &GcHeaderWithExtras<Self>, value: &dyn CcDyn) {
+        let header: &GcHeader = &header.gc_header;
+        let prev: &GcHeader = &self.list.borrow();
+        debug_assert!(header.next.get().is_null());
+        let next = prev.next.get();
+        header.prev.set(prev.deref());
+        header.next.set(next);
+        unsafe {
+            // safety: The linked list is maintained, and pointers are valid.
+            (&*next).prev.set(header);
+            // safety: To access vtable pointer. Test by test_gc_header_value.
+            let fat_ptr: [*mut (); 2] = mem::transmute(value);
+            header.ccdyn_vptr.set(fat_ptr[1]);
+        }
+        prev.next.set(header);
+    }
+
+    #[inline]
+    fn remove(header: &GcHeaderWithExtras<Self>) {
+        let header: &GcHeader = &header.gc_header;
+        debug_assert!(!header.next.get().is_null());
+        debug_assert!(!header.prev.get().is_null());
+        let next = header.next.get();
+        let prev = header.prev.get();
+        // safety: The linked list is maintained. Pointers in it are valid.
+        unsafe {
+            (*prev).next.set(next);
+            (*next).prev.set(prev);
+        }
+        header.next.set(std::ptr::null_mut());
+    }
+
+    fn default_extras(&self) -> Self::Extras {
+        ()
+    }
+}
+
+impl Default for CcObjectSpace {
     /// Constructs an empty [`ObjectSpace`](struct.ObjectSpace.html).
     fn default() -> Self {
         let header = new_gc_list();
@@ -60,7 +120,7 @@ impl Default for ObjectSpace {
     }
 }
 
-impl ObjectSpace {
+impl CcObjectSpace {
     /// Count objects tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     pub fn count_tracked(&self) -> usize {
         let list: &GcHeader = &self.list.borrow();
@@ -94,7 +154,7 @@ impl ObjectSpace {
     // together, to make it easier to support generational collection.
 }
 
-impl Drop for ObjectSpace {
+impl Drop for CcObjectSpace {
     fn drop(&mut self) {
         self.collect_cycles();
     }
@@ -115,7 +175,7 @@ pub fn count_thread_tracked() -> usize {
     THREAD_OBJECT_SPACE.with(|list| list.count_tracked())
 }
 
-thread_local!(pub(crate) static THREAD_OBJECT_SPACE: ObjectSpace = ObjectSpace::default());
+thread_local!(pub(crate) static THREAD_OBJECT_SPACE: CcObjectSpace = CcObjectSpace::default());
 
 /// Create an empty linked list with a dummy GcHeader.
 fn new_gc_list() -> Pin<Box<GcHeader>> {

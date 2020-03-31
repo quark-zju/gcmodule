@@ -206,6 +206,7 @@
 //! undefined behavior. Again, the UB can only happen if the [`Trace::trace`](trait.Trace.html#method.trace)
 //! is implemented wrong, and panic will happen before the UB.
 
+// mod acc;
 mod cc;
 mod cc_impls;
 mod collect;
@@ -220,7 +221,7 @@ mod trace;
 mod trace_impls;
 
 pub use cc::Cc;
-pub use collect::{collect_thread_cycles, count_thread_tracked, ObjectSpace};
+pub use collect::{collect_thread_cycles, count_thread_tracked, CcObjectSpace};
 pub use trace::{Trace, Tracer};
 
 /// Derive [`Trace`](trait.Trace.html) implementation for a structure.
