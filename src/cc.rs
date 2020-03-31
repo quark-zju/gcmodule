@@ -1,5 +1,6 @@
 use crate::collect;
 use crate::debug;
+use crate::mutable_usize::Usize;
 use crate::trace::Trace;
 use crate::trace::Tracer;
 use crate::ObjectSpace;
@@ -46,10 +47,10 @@ pub struct GcHeader {
 
 /// The data shared by multiple `Cc<T>` pointers.
 #[repr(C)]
-pub(crate) struct CcBox<T: ?Sized> {
+pub(crate) struct CcBox<T: ?Sized, I> {
     /// The lowest REF_COUNT_SHIFT bits are used for metadata.
     /// The higher bits are used for ref count.
-    pub(crate) ref_count: Cell<usize>,
+    pub(crate) ref_count: I,
 
     #[cfg(test)]
     pub(crate) name: String,
@@ -61,7 +62,7 @@ pub(crate) struct CcBox<T: ?Sized> {
 #[repr(C)]
 pub(crate) struct CcBoxWithGcHeader<T: ?Sized> {
     pub(crate) gc_header: GcHeader,
-    cc_box: CcBox<T>,
+    cc_box: CcBox<T, Cell<usize>>,
 }
 
 /// A single-threaded reference-counting pointer that integrates
@@ -80,11 +81,11 @@ pub(crate) struct CcBoxWithGcHeader<T: ?Sized> {
 ///     println!("{}", cc.deref());
 /// });
 /// ```
-pub struct Cc<T: ?Sized>(NonNull<CcBox<T>>);
+pub struct Cc<T: ?Sized>(NonNull<CcBox<T, Cell<usize>>>);
 
 // `ManuallyDrop<T>` does not implement `UnwindSafe`. But `CcBox::drop` does
 // make sure `T` is dropped. If `T` is unwind-safe, so does `CcBox<T>`.
-impl<T: UnwindSafe + ?Sized> UnwindSafe for CcBox<T> {}
+impl<T: UnwindSafe + ?Sized> UnwindSafe for CcBox<T, Cell<usize>> {}
 
 // `NonNull` does not implement `UnwindSafe`. But `Cc` only uses it
 // as a "const" pointer. If `T` is unwind-safe, so does `Cc<T>`.
@@ -218,7 +219,7 @@ impl<T: Trace> Cc<T> {
             #[cfg(test)]
             name: debug::NEXT_DEBUG_NAME.with(|n| n.get().to_string()),
         };
-        let ccbox_ptr: *mut CcBox<T> = if is_tracked {
+        let ccbox_ptr: *mut CcBox<T, Cell<usize>> = if is_tracked {
             // Create a GcHeader before the CcBox. This is similar to cpython.
             let gc_header = GcHeader::empty();
             let cc_box_with_header = CcBoxWithGcHeader { gc_header, cc_box };
@@ -228,10 +229,10 @@ impl<T: Trace> Cc<T> {
             let head = &space.list.borrow();
             boxed.gc_header.insert_into_linked_list(head, &boxed.cc_box);
             debug_assert_eq!(
-                mem::size_of::<GcHeader>() + mem::size_of::<CcBox<T>>(),
+                mem::size_of::<GcHeader>() + mem::size_of::<CcBox<T, Cell<usize>>>(),
                 mem::size_of::<CcBoxWithGcHeader<T>>()
             );
-            let ptr: *mut CcBox<T> = &mut boxed.cc_box;
+            let ptr: *mut CcBox<T, Cell<usize>> = &mut boxed.cc_box;
             Box::leak(boxed);
             ptr
         } else {
@@ -291,10 +292,10 @@ impl<T: Trace + Clone> Cc<T> {
     }
 }
 
-impl<T: ?Sized> CcBox<T> {
+impl<T: ?Sized, I: Usize> CcBox<T, I> {
     #[inline]
     fn is_tracked(&self) -> bool {
-        (self.ref_count.get() & REF_COUNT_MASK_TRACKED) != 0
+        (self.ref_count.get_relaxed() & REF_COUNT_MASK_TRACKED) != 0
     }
 
     #[inline]
@@ -310,15 +311,13 @@ impl<T: ?Sized> CcBox<T> {
     }
 
     #[inline]
-    fn inc_ref(&self) {
-        let new_count = self.ref_count.get() + (1 << REF_COUNT_SHIFT);
-        self.ref_count.set(new_count);
+    fn inc_ref(&self) -> usize {
+        self.ref_count.fetch_add(1 << REF_COUNT_SHIFT)
     }
 
     #[inline]
-    fn dec_ref(&self) {
-        let new_count = self.ref_count.get() - (1 << REF_COUNT_SHIFT);
-        self.ref_count.set(new_count);
+    fn dec_ref(&self) -> usize {
+        self.ref_count.fetch_sub(1 << REF_COUNT_SHIFT)
     }
 
     #[inline]
@@ -327,18 +326,15 @@ impl<T: ?Sized> CcBox<T> {
     }
 
     #[inline]
-    fn set_dropped(&self) {
-        let new_value = self.ref_count.get() | REF_COUNT_MASK_DROPPED;
-        self.ref_count.set(new_value);
-        debug_assert!(self.is_dropped());
+    fn set_dropped(&self) -> usize {
+        self.ref_count.fetch_or(REF_COUNT_MASK_DROPPED)
     }
 
     #[inline]
     pub(crate) fn drop_t(&self) {
-        if !self.is_dropped() {
-            // This might trigger recursive drops. So set the "dropped" bit
-            // first to prevent infinite recursive drops.
-            self.set_dropped();
+        let old_value = self.set_dropped();
+        let already_dropped = old_value & REF_COUNT_MASK_DROPPED != 0;
+        if !already_dropped {
             debug::log(|| (self.debug_name(), "drop (T)"));
             // safety: is_dropped() check ensures T is only dropped once. Other
             // places (ex. gc collector) ensure that T is no longer accessed.
@@ -373,18 +369,18 @@ impl<T: ?Sized> CcBox<T> {
 
 impl<T: ?Sized> Cc<T> {
     #[inline]
-    pub(crate) fn inner(&self) -> &CcBox<T> {
+    pub(crate) fn inner(&self) -> &CcBox<T, Cell<usize>> {
         // safety: CcBox lifetime maintained by ref count. Pointer is valid.
         unsafe { self.0.as_ref() }
     }
 
     #[inline]
-    fn inc_ref(&self) {
+    fn inc_ref(&self) -> usize {
         self.inner().inc_ref()
     }
 
     #[inline]
-    fn dec_ref(&self) {
+    fn dec_ref(&self) -> usize {
         self.inner().dec_ref()
     }
 
@@ -416,7 +412,7 @@ impl<T: ?Sized> Deref for Cc<T> {
     }
 }
 
-impl<T: ?Sized> Deref for CcBox<T> {
+impl<T: ?Sized, I: Usize> Deref for CcBox<T, I> {
     type Target = T;
 
     #[inline]
@@ -436,9 +432,9 @@ impl<T: ?Sized> Deref for CcBox<T> {
     }
 }
 
-fn drop_ccbox<T: ?Sized>(cc_box: &mut CcBox<T>) {
+fn drop_ccbox<T: ?Sized, I: Usize>(cc_box: &mut CcBox<T, I>) {
     // safety: See Cc::new. The pointer was created by Box::into_raw.
-    let cc_box: Box<CcBox<T>> = unsafe { Box::from_raw(cc_box) };
+    let cc_box: Box<CcBox<T, I>> = unsafe { Box::from_raw(cc_box) };
     let is_tracked = cc_box.is_tracked();
     // Drop T if it hasn't been dropped yet.
     cc_box.drop_t();
@@ -457,16 +453,16 @@ fn drop_ccbox<T: ?Sized>(cc_box: &mut CcBox<T>) {
 
 impl<T: ?Sized> Drop for Cc<T> {
     fn drop(&mut self) {
-        self.dec_ref();
+        let old_ref_count = self.dec_ref();
         debug::log(|| (self.debug_name(), format!("drop ({})", self.ref_count())));
-        if self.ref_count() == 0 {
+        if (old_ref_count >> REF_COUNT_SHIFT) == 1 {
             // safety: CcBox lifetime maintained by ref count.
             drop_ccbox(unsafe { self.0.as_mut() });
         }
     }
 }
 
-impl<T: Trace> CcDyn for CcBox<T> {
+impl<T: Trace> CcDyn for CcBox<T, Cell<usize>> {
     fn gc_ref_count(&self) -> usize {
         self.ref_count()
     }
@@ -485,7 +481,7 @@ impl<T: Trace> CcDyn for CcBox<T> {
         // safety: The pointer is compatible. The mutability is different only
         // to satisfy NonNull (NonNull::new requires &mut). The returned value
         // is still "immutable".
-        let ptr: NonNull<CcBox<T>> = unsafe { mem::transmute(self) };
+        let ptr: NonNull<CcBox<T, Cell<usize>>> = unsafe { mem::transmute(self) };
         Cc::<T>(ptr).into_dyn()
     }
 }
@@ -532,7 +528,7 @@ impl Cc<dyn Trace> {
         if self.downcast_ref::<T>().is_some() {
             // safety: type T is checked above. The first pointer of the fat
             // pointer (Cc<dyn Trace>) matches the raw CcBox pointer.
-            let fat_ptr: (*mut CcBox<T>, *mut ()) = unsafe { mem::transmute(self) };
+            let fat_ptr: (*mut CcBox<T, Cell<usize>>, *mut ()) = unsafe { mem::transmute(self) };
             let non_null = unsafe { NonNull::new_unchecked(fat_ptr.0) };
             let result: Cc<T> = Cc(non_null);
             Ok(result)
@@ -554,12 +550,12 @@ unsafe fn cast_ref<T: ?Sized, R>(value: &T, offset_bytes: isize) -> &R {
 }
 
 #[inline]
-unsafe fn cast_box<T: ?Sized>(value: Box<CcBox<T>>) -> Box<CcBoxWithGcHeader<T>> {
-    let mut ptr: *const CcBox<T> = Box::into_raw(value);
+unsafe fn cast_box<T: ?Sized, I: Usize>(value: Box<CcBox<T, I>>) -> Box<CcBoxWithGcHeader<T>> {
+    let mut ptr: *const CcBox<T, I> = Box::into_raw(value);
 
     // ptr can be "thin" (1 pointer) or "fat" (2 pointers).
     // Change the first byte to point to the GcHeader.
-    let pptr: *mut *const CcBox<T> = &mut ptr;
+    let pptr: *mut *const CcBox<T, I> = &mut ptr;
     let pptr: *mut *const GcHeader = pptr as _;
     *pptr = (*pptr).offset(-1);
     let ptr: *mut CcBoxWithGcHeader<T> = mem::transmute(ptr);

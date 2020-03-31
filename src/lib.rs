@@ -211,6 +211,7 @@ mod cc_impls;
 mod collect;
 #[cfg(test)]
 mod debug;
+mod mutable_usize;
 #[cfg(test)]
 mod tests;
 #[cfg(any(test, feature = "testutil"))]
