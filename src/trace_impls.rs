@@ -116,6 +116,36 @@ mod boxed {
             Some(self)
         }
     }
+
+    impl Trace for Box<dyn Trace + Send> {
+        fn trace(&self, tracer: &mut Tracer) {
+            self.as_ref().trace(tracer);
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            true
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
+    }
+
+    impl Trace for Box<dyn Trace + Send + Sync> {
+        fn trace(&self, tracer: &mut Tracer) {
+            self.as_ref().trace(tracer);
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            true
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
+    }
 }
 
 mod cell {
@@ -391,11 +421,44 @@ mod result {
 }
 
 mod sync {
+    use super::*;
     use std::sync;
 
     trace_acyclic!(<T> sync::Arc<T>);
-    trace_acyclic!(<T> sync::Mutex<T>);
-    trace_acyclic!(<T> sync::RwLock<T>);
+
+    impl<T: Trace> Trace for sync::Mutex<T> {
+        fn trace(&self, tracer: &mut Tracer) {
+            if let Ok(x) = self.try_lock() {
+                x.trace(tracer);
+            }
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
+    }
+
+    impl<T: Trace> Trace for sync::RwLock<T> {
+        fn trace(&self, tracer: &mut Tracer) {
+            if let Ok(x) = self.try_read() {
+                x.trace(tracer);
+            }
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
+    }
 }
 
 mod thread {
