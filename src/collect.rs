@@ -132,7 +132,7 @@ impl CcObjectSpace {
     /// Return the number of objects collected.
     pub fn collect_cycles(&self) -> usize {
         let list: &GcHeader = &self.list.borrow();
-        collect_list(list)
+        collect_list(list, ())
     }
 
     /// Constructs a new [`Cc<T>`](struct.Cc.html) in this
@@ -241,10 +241,10 @@ pub(crate) fn new_gc_list() -> Pin<Box<GcHeader>> {
 }
 
 /// Scan the specified linked list. Collect cycles.
-pub(crate) fn collect_list<L: Linked>(list: &L) -> usize {
+pub(crate) fn collect_list<L: Linked, K>(list: &L, lock: K) -> usize {
     update_refs(list);
     subtract_refs(list);
-    release_unreachable(list)
+    release_unreachable(list, lock)
 }
 
 /// Visit the linked list.
@@ -317,7 +317,7 @@ fn mark_reachable<L: Linked>(list: &L) {
 }
 
 /// Release unreachable objects in the linked list.
-fn release_unreachable<L: Linked>(list: &L) -> usize {
+fn release_unreachable<L: Linked, K>(list: &L, lock: K) -> usize {
     // Mark reachable objects. For example, A refers B. A's gc_ref_count
     // is 1 while B's gc_ref_count is 0. In this case B should be revived
     // by A's non-zero gc_ref_count.
@@ -368,6 +368,11 @@ fn release_unreachable<L: Linked>(list: &L) -> usize {
             )
         );
     }
+
+    // Drop lock to prevent deadlock.
+    // This is needed because dropping `to_drop` will change the linked list
+    // by ObjectSpace::remove, which might need to lock.
+    drop(lock);
 
     count
 }

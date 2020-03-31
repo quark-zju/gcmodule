@@ -5,7 +5,7 @@ use crate::collect;
 use crate::collect::Linked;
 use crate::collect::ObjectSpace;
 use crate::Trace;
-use parking_lot::ReentrantMutex;
+use parking_lot::Mutex;
 use std::cell::Cell;
 use std::mem;
 use std::ops::Deref;
@@ -21,7 +21,7 @@ pub struct Header {
     /// Vtable of (`&CcBox<T> as &dyn CcDyn`)
     ccdyn_vptr: Cell<*mut ()>,
 
-    lock: Arc<ReentrantMutex<()>>,
+    lock: Arc<Mutex<()>>,
 }
 
 pub struct AccObjectSpace {
@@ -86,7 +86,7 @@ impl ObjectSpace for AccObjectSpace {
 impl Default for AccObjectSpace {
     /// Constructs an empty [`AccObjectSpace`](struct.AccObjectSpace.html).
     fn default() -> Self {
-        let lock = Arc::new(ReentrantMutex::new(()));
+        let lock = Arc::new(Mutex::new(()));
         let pinned = Box::pin(Header {
             prev: Cell::new(std::ptr::null()),
             next: Cell::new(std::ptr::null()),
@@ -113,9 +113,9 @@ impl AccObjectSpace {
     /// Collect cyclic garbage tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     /// Return the number of objects collected.
     pub fn collect_cycles(&self) -> usize {
-        let _locked = self.list.lock.lock();
+        let locked = self.list.lock.lock();
         let list: &Header = &self.list;
-        collect::collect_list(list)
+        collect::collect_list(list, locked)
     }
 
     /// Constructs a new [`Acc<T>`](struct.Acc.html) in this
