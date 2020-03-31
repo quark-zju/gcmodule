@@ -58,20 +58,13 @@ pub(crate) struct CcBox<T: ?Sized, O: ObjectSpace> {
     value: UnsafeCell<ManuallyDrop<T>>,
 }
 
-/// This is a private type.
-#[repr(C)]
-pub struct GcHeaderWithExtras<O: ObjectSpace> {
-    pub(crate) extras: O::Extras,
-    pub(crate) gc_header: GcHeader,
-}
-
 /// The real layout if `T` is tracked by the collector. The main APIs still use
 /// the `CcBox` type. This type is only used for allocation and deallocation.
 ///
 /// This is a private type.
 #[repr(C)]
 pub struct AbstractCcBoxWithGcHeader<T: ?Sized, O: ObjectSpace> {
-    pub(crate) gc_header_with_extras: GcHeaderWithExtras<O>,
+    header: O::Header,
     cc_box: CcBox<T, O>,
 }
 
@@ -219,21 +212,14 @@ impl<T: Trace, O: ObjectSpace> AbstractCc<T, O> {
         };
         let ccbox_ptr: *mut CcBox<T, O> = if is_tracked {
             // Create a GcHeader before the CcBox. This is similar to cpython.
-            let gc_header = GcHeader::empty();
-            let extras = space.default_extras();
-            let gc_header_with_extras = GcHeaderWithExtras { gc_header, extras };
-            let cc_box_with_header = AbstractCcBoxWithGcHeader {
-                gc_header_with_extras,
-                cc_box,
-            };
+            let header = space.default_header();
+            let cc_box_with_header = AbstractCcBoxWithGcHeader { header, cc_box };
             let mut boxed = Box::new(cc_box_with_header);
             // Fix-up fields in GcHeader. This is done after the creation of the
             // Box so the memory addresses are stable.
-            space.insert(&boxed.gc_header_with_extras, &boxed.cc_box);
+            space.insert(&boxed.header, &boxed.cc_box);
             debug_assert_eq!(
-                mem::size_of::<GcHeader>()
-                    + mem::size_of::<CcBox<T, O>>()
-                    + mem::size_of::<O::Extras>(),
+                mem::size_of::<O::Header>() + mem::size_of::<CcBox<T, O>>(),
                 mem::size_of::<AbstractCcBoxWithGcHeader<T, O>>()
             );
             let ptr: *mut CcBox<T, O> = &mut boxed.cc_box;
@@ -308,10 +294,15 @@ impl<T: ?Sized, O: ObjectSpace> CcBox<T, O> {
     }
 
     #[inline]
-    fn gc_header(&self) -> &GcHeader {
+    fn header_ptr(&self) -> *const () {
+        self.header() as *const _ as _
+    }
+
+    #[inline]
+    fn header(&self) -> &O::Header {
         debug_assert!(self.is_tracked());
         // safety: See `Cc::new`. GcHeader is before CcBox for tracked objects.
-        unsafe { cast_ref(self, -(mem::size_of::<GcHeader>() as isize)) }
+        unsafe { cast_ref(self, -(mem::size_of::<O::Header>() as isize)) }
     }
 
     #[inline]
@@ -356,7 +347,7 @@ impl<T: ?Sized, O: ObjectSpace> CcBox<T, O> {
         // `trace` stops here, is non-recursive, and does apply `tracer`
         // to the actual `GcHeader`. It's expected that the upper layer
         // calls `gc_traverse` on everything (not just roots).
-        tracer(self.gc_header());
+        tracer(self.header_ptr());
     }
 
     pub(crate) fn debug_name(&self) -> &str {
@@ -447,7 +438,7 @@ fn drop_ccbox<T: ?Sized, O: ObjectSpace>(cc_box: &mut CcBox<T, O>) {
         debug::log(|| (cc_box.debug_name(), "drop (CcBoxWithGcHeader)"));
         // safety: See Cc::new for CcBoxWithGcHeader.
         let gc_box: Box<AbstractCcBoxWithGcHeader<T, O>> = unsafe { cast_box(cc_box) };
-        O::remove(&gc_box.gc_header_with_extras);
+        O::remove(&gc_box.header);
         drop(gc_box);
     } else {
         debug::log(|| (cc_box.debug_name(), "drop (CcBox)"));
@@ -577,7 +568,7 @@ unsafe fn cast_box<T: ?Sized, O: ObjectSpace>(
     // ptr can be "thin" (1 pointer) or "fat" (2 pointers).
     // Change the first byte to point to the GcHeader.
     let pptr: *mut *const CcBox<T, O> = &mut ptr;
-    let pptr: *mut *const GcHeaderWithExtras<O> = pptr as _;
+    let pptr: *mut *const O::Header = pptr as _;
     *pptr = (*pptr).offset(-1);
     let ptr: *mut AbstractCcBoxWithGcHeader<T, O> = mem::transmute(ptr);
     Box::from_raw(ptr)
@@ -600,7 +591,7 @@ mod tests {
         let v3: &dyn CcDyn = v1.inner() as &dyn CcDyn;
         assert_eq!(v3.gc_ref_count(), 2);
 
-        let v4: &dyn CcDyn = v2.inner().gc_header().value();
+        let v4: &dyn CcDyn = v2.inner().header().value();
         assert_eq!(v4.gc_ref_count(), 2);
     }
 

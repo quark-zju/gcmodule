@@ -7,7 +7,6 @@
 use crate::cc::CcDyn;
 use crate::cc::GcClone;
 use crate::cc::GcHeader;
-use crate::cc::GcHeaderWithExtras;
 use crate::debug;
 use crate::mutable_usize::Usize;
 use crate::Cc;
@@ -57,23 +56,23 @@ pub struct CcObjectSpace {
 /// This is a private type.
 pub trait ObjectSpace: 'static + Sized {
     type RefCount: Usize;
-    type Extras;
+    type Header;
 
     /// Insert "header" and "value" to the linked list.
-    fn insert(&self, header: &GcHeaderWithExtras<Self>, value: &dyn CcDyn);
+    fn insert(&self, header: &Self::Header, value: &dyn CcDyn);
 
     /// Remove from linked list.
-    fn remove(header: &GcHeaderWithExtras<Self>);
+    fn remove(header: &Self::Header);
 
-    fn default_extras(&self) -> Self::Extras;
+    fn default_header(&self) -> Self::Header;
 }
 
 impl ObjectSpace for CcObjectSpace {
     type RefCount = Cell<usize>;
-    type Extras = ();
+    type Header = GcHeader;
 
-    fn insert(&self, header: &GcHeaderWithExtras<Self>, value: &dyn CcDyn) {
-        let header: &GcHeader = &header.gc_header;
+    fn insert(&self, header: &Self::Header, value: &dyn CcDyn) {
+        let header: &GcHeader = &header;
         let prev: &GcHeader = &self.list.borrow();
         debug_assert!(header.next.get().is_null());
         let next = prev.next.get();
@@ -90,8 +89,8 @@ impl ObjectSpace for CcObjectSpace {
     }
 
     #[inline]
-    fn remove(header: &GcHeaderWithExtras<Self>) {
-        let header: &GcHeader = &header.gc_header;
+    fn remove(header: &Self::Header) {
+        let header: &GcHeader = &header;
         debug_assert!(!header.next.get().is_null());
         debug_assert!(!header.prev.get().is_null());
         let next = header.next.get();
@@ -104,8 +103,8 @@ impl ObjectSpace for CcObjectSpace {
         header.next.set(std::ptr::null_mut());
     }
 
-    fn default_extras(&self) -> Self::Extras {
-        ()
+    fn default_header(&self) -> Self::Header {
+        GcHeader::empty()
     }
 }
 
@@ -225,7 +224,9 @@ fn update_refs(list: &GcHeader) {
 /// to 0. If vertexes in a connected component _all_ have ref count 0,
 /// they are unreachable and can be released.
 fn subtract_refs(list: &GcHeader) {
-    let mut tracer = |header: &GcHeader| {
+    let mut tracer = |header: *const ()| {
+        // safety: The type is known to be GcHeader.
+        let header = unsafe { &*(header as *const GcHeader) };
         if is_collecting(header) {
             debug_assert!(!is_unreachable(header));
             edit_gc_ref_count(header, -1);
@@ -240,7 +241,9 @@ fn subtract_refs(list: &GcHeader) {
 /// values. This also removes the COLLECTING flag for reachable objects so
 /// unreachable objects all have the COLLECTING flag set.
 fn mark_reachable(list: &GcHeader) {
-    fn revive(header: &GcHeader) {
+    fn revive(header: *const ()) {
+        // safety: The type is known to be GcHeader.
+        let header = unsafe { &*(header as *const GcHeader) };
         // hasn't visited?
         if is_collecting(header) {
             unset_collecting(header);

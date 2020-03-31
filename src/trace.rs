@@ -1,9 +1,8 @@
-use crate::cc::GcHeader;
 use std::any::Any;
 
 /// Callback function that serves as the parameter of
 /// [`Trace::trace`](trait.Trace.html#method.trace).
-pub type Tracer<'a> = dyn FnMut(&GcHeader) + 'a;
+pub type Tracer<'a> = dyn FnMut(*const ()) + 'a;
 
 /// Defines how the cycle collector should collect a type.
 ///

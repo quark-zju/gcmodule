@@ -206,7 +206,7 @@
 //! undefined behavior. Again, the UB can only happen if the [`Trace::trace`](trait.Trace.html#method.trace)
 //! is implemented wrong, and panic will happen before the UB.
 
-mod acc;
+// mod acc;
 mod cc;
 mod cc_impls;
 mod collect;
