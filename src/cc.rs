@@ -542,6 +542,7 @@ unsafe fn cast_box<T: ?Sized, O: ObjectSpace>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::collect::Linked;
 
     /// Check that `GcHeader::value()` returns a working trait object.
     #[test]

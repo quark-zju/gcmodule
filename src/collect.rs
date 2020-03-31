@@ -159,6 +159,15 @@ impl Drop for CcObjectSpace {
     }
 }
 
+pub trait Linked {
+    fn next(&self) -> *const Self;
+    fn prev(&self) -> *const Self;
+    fn set_prev(&self, other: *const Self);
+
+    /// Get the trait object to operate on the actual `CcBox`.
+    fn value(&self) -> &dyn CcDyn;
+}
+
 /// Internal metadata used by the cycle collector.
 #[repr(C)]
 pub struct GcHeader {
@@ -169,6 +178,31 @@ pub struct GcHeader {
     pub(crate) ccdyn_vptr: Cell<*mut ()>,
 }
 
+impl Linked for GcHeader {
+    #[inline]
+    fn next(&self) -> *const Self {
+        self.next.get()
+    }
+    #[inline]
+    fn prev(&self) -> *const Self {
+        self.prev.get()
+    }
+    #[inline]
+    fn set_prev(&self, other: *const Self) {
+        self.prev.set(other)
+    }
+    #[inline]
+    fn value(&self) -> &dyn CcDyn {
+        // safety: To build trait object from self and vtable pointer.
+        // Test by test_gc_header_value_consistency().
+        unsafe {
+            let fat_ptr: (*const (), *mut ()) =
+                ((self as *const Self).offset(1) as _, self.ccdyn_vptr.get());
+            mem::transmute(fat_ptr)
+        }
+    }
+}
+
 impl GcHeader {
     /// Create an empty header.
     pub(crate) fn empty() -> Self {
@@ -176,19 +210,6 @@ impl GcHeader {
             next: Cell::new(std::ptr::null()),
             prev: Cell::new(std::ptr::null()),
             ccdyn_vptr: Cell::new(CcDummy::ccdyn_vptr()),
-        }
-    }
-
-    /// Get the trait object to operate on the actual `CcBox`.
-    pub(crate) fn value(&self) -> &dyn CcDyn {
-        // safety: To build trait object from self and vtable pointer.
-        // Test by test_gc_header_value_consistency().
-        unsafe {
-            let fat_ptr: (*const (), *mut ()) = (
-                (self as *const GcHeader).offset(1) as _,
-                self.ccdyn_vptr.get(),
-            );
-            mem::transmute(fat_ptr)
         }
     }
 }
@@ -220,20 +241,20 @@ pub(crate) fn new_gc_list() -> Pin<Box<GcHeader>> {
 }
 
 /// Scan the specified linked list. Collect cycles.
-pub(crate) fn collect_list(list: &GcHeader) -> usize {
+pub(crate) fn collect_list<L: Linked>(list: &L) -> usize {
     update_refs(list);
     subtract_refs(list);
     release_unreachable(list)
 }
 
 /// Visit the linked list.
-pub(crate) fn visit_list<'a>(list: &'a GcHeader, mut func: impl FnMut(&'a GcHeader)) {
+pub(crate) fn visit_list<'a, L: Linked>(list: &'a L, mut func: impl FnMut(&'a L)) {
     // Skip the first dummy entry.
-    let mut ptr = list.next.get();
-    while ptr != list {
+    let mut ptr = list.next();
+    while ptr as *const _ != list as *const _ {
         // The linked list is maintained so the pointer is valid.
-        let header: &GcHeader = unsafe { &*ptr };
-        ptr = header.next.get();
+        let header: &L = unsafe { &*ptr };
+        ptr = header.next();
         func(header);
     }
 }
@@ -243,11 +264,11 @@ const PREV_SHIFT: u32 = 1;
 
 /// Temporarily use `GcHeader.prev` as `gc_ref_count`.
 /// Idea comes from https://bugs.python.org/issue33597.
-fn update_refs(list: &GcHeader) {
+fn update_refs<L: Linked>(list: &L) {
     visit_list(list, |header| {
         let ref_count = header.value().gc_ref_count();
         let shifted = (ref_count << PREV_SHIFT) | PREV_MASK_COLLECTING;
-        header.prev.set(shifted as _);
+        header.set_prev(shifted as _);
     });
 }
 
@@ -257,10 +278,10 @@ fn update_refs(list: &GcHeader) {
 /// After this, potential unreachable objects will have ref count down
 /// to 0. If vertexes in a connected component _all_ have ref count 0,
 /// they are unreachable and can be released.
-fn subtract_refs(list: &GcHeader) {
+fn subtract_refs<L: Linked>(list: &L) {
     let mut tracer = |header: *const ()| {
         // safety: The type is known to be GcHeader.
-        let header = unsafe { &*(header as *const GcHeader) };
+        let header = unsafe { &*(header as *const L) };
         if is_collecting(header) {
             debug_assert!(!is_unreachable(header));
             edit_gc_ref_count(header, -1);
@@ -274,29 +295,29 @@ fn subtract_refs(list: &GcHeader) {
 /// Mark objects as reachable recursively. So ref count 0 means unreachable
 /// values. This also removes the COLLECTING flag for reachable objects so
 /// unreachable objects all have the COLLECTING flag set.
-fn mark_reachable(list: &GcHeader) {
-    fn revive(header: *const ()) {
+fn mark_reachable<L: Linked>(list: &L) {
+    fn revive<L: Linked>(header: *const ()) {
         // safety: The type is known to be GcHeader.
-        let header = unsafe { &*(header as *const GcHeader) };
+        let header = unsafe { &*(header as *const L) };
         // hasn't visited?
         if is_collecting(header) {
             unset_collecting(header);
             if is_unreachable(header) {
                 edit_gc_ref_count(header, 1); // revive
             }
-            header.value().gc_traverse(&mut revive); // revive recursively
+            header.value().gc_traverse(&mut revive::<L>); // revive recursively
         }
     }
     visit_list(list, |header| {
         if is_collecting(header) && !is_unreachable(header) {
             unset_collecting(header);
-            header.value().gc_traverse(&mut revive)
+            header.value().gc_traverse(&mut revive::<L>)
         }
     });
 }
 
 /// Release unreachable objects in the linked list.
-fn release_unreachable(list: &GcHeader) -> usize {
+fn release_unreachable<L: Linked>(list: &L) -> usize {
     // Mark reachable objects. For example, A refers B. A's gc_ref_count
     // is 1 while B's gc_ref_count is 0. In this case B should be revived
     // by A's non-zero gc_ref_count.
@@ -352,32 +373,32 @@ fn release_unreachable(list: &GcHeader) -> usize {
 }
 
 /// Restore `GcHeader.prev` as a pointer used in the linked list.
-fn restore_prev(list: &GcHeader) {
+fn restore_prev<L: Linked>(list: &L) {
     let mut prev = list;
     visit_list(list, |header| {
-        header.prev.set(prev);
+        header.set_prev(prev);
         prev = header;
     });
 }
 
-fn is_unreachable(header: &GcHeader) -> bool {
-    let prev = header.prev.get() as usize;
+fn is_unreachable<L: Linked>(header: &L) -> bool {
+    let prev = header.prev() as *const L as usize;
     is_collecting(header) && (prev >> PREV_SHIFT) == 0
 }
 
-fn is_collecting(header: &GcHeader) -> bool {
-    let prev = header.prev.get() as usize;
+fn is_collecting<L: Linked>(header: &L) -> bool {
+    let prev = header.prev() as *const L as usize;
     (prev & PREV_MASK_COLLECTING) != 0
 }
 
-fn unset_collecting(header: &GcHeader) {
-    let prev = header.prev.get() as usize;
+fn unset_collecting<L: Linked>(header: &L) {
+    let prev = header.prev() as *const L as usize;
     let new_prev = (prev & PREV_MASK_COLLECTING) ^ prev;
-    header.prev.set(new_prev as _);
+    header.set_prev(new_prev as _);
 }
 
-fn edit_gc_ref_count(header: &GcHeader, delta: isize) {
-    let prev = header.prev.get() as isize;
+fn edit_gc_ref_count<L: Linked>(header: &L, delta: isize) {
+    let prev = header.prev() as *const L as isize;
     let new_prev = prev + (1 << PREV_SHIFT) * delta;
-    header.prev.set(new_prev as _);
+    header.set_prev(new_prev as _);
 }
