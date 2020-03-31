@@ -116,7 +116,16 @@ pub(crate) trait CcDyn {
     /// - Keep a reference so `CcBox<T>` is not released in the next step.
     ///   So metadata like `ref_count` can still be read.
     /// - Operate on the object.
-    fn gc_clone(&self) -> Cc<dyn Trace>;
+    fn gc_clone(&self) -> Box<dyn GcClone>;
+}
+
+/// Type-erased gc_clone result.
+pub(crate) trait GcClone {
+    /// Force drop the value T.
+    fn gc_drop_t(&self);
+
+    /// Returns the reference count. This is useful for verification.
+    fn gc_ref_count(&self) -> usize;
 }
 
 /// A dummy implementation without drop side-effects.
@@ -136,7 +145,7 @@ impl CcDyn for CcDummy {
         1
     }
     fn gc_traverse(&self, _tracer: &mut Tracer) {}
-    fn gc_clone(&self) -> Cc<dyn Trace> {
+    fn gc_clone(&self) -> Box<dyn GcClone> {
         panic!("bug: CcDummy::gc_clone should never be called");
     }
 }
@@ -478,7 +487,7 @@ impl<T: Trace, I: Usize> CcDyn for CcBox<T, I> {
         T::trace(self.deref(), tracer)
     }
 
-    fn gc_clone(&self) -> Cc<dyn Trace> {
+    fn gc_clone(&self) -> Box<dyn GcClone> {
         self.inc_ref();
         debug::log(|| {
             let msg = format!("gc_clone ({})", self.ref_count());
@@ -487,9 +496,19 @@ impl<T: Trace, I: Usize> CcDyn for CcBox<T, I> {
         // safety: The pointer is compatible. The mutability is different only
         // to satisfy NonNull (NonNull::new requires &mut). The returned value
         // is still "immutable".
-        // FIXME: This only works for I = Cell<usize>.
-        let ptr: NonNull<CcBox<T, Cell<usize>>> = unsafe { mem::transmute(self) };
-        AbstractCc::<T, Cell<usize>>(ptr).into_dyn()
+        let ptr: NonNull<CcBox<T, I>> = unsafe { mem::transmute(self) };
+        let cc = AbstractCc::<T, I>(ptr);
+        Box::new(cc)
+    }
+}
+
+impl<T: Trace, I: Usize> GcClone for AbstractCc<T, I> {
+    fn gc_ref_count(&self) -> usize {
+        self.ref_count()
+    }
+
+    fn gc_drop_t(&self) {
+        self.inner().drop_t()
     }
 }
 

@@ -4,6 +4,7 @@
 
 // NOTE: Consider adding generation support if necessary. It won't be too hard.
 
+use crate::cc::GcClone;
 use crate::cc::GcHeader;
 use crate::debug;
 use crate::Cc;
@@ -220,7 +221,7 @@ fn release_unreachable(list: &GcHeader) -> usize {
     //
     // Here we keep extra references to the `CcBox<T>` to keep them alive. This
     // ensures metadata fields like `ref_count` is available.
-    let mut to_drop: Vec<Cc<dyn Trace>> = Vec::with_capacity(count);
+    let mut to_drop: Vec<Box<dyn GcClone>> = Vec::with_capacity(count);
     visit_list(list, |header| {
         if is_unreachable(header) {
             to_drop.push(header.value().gc_clone());
@@ -234,13 +235,13 @@ fn release_unreachable(list: &GcHeader) -> usize {
     // recursive drops of other `Cc<T>`. `CcBox<T>` need to stay alive so
     // `Cc<T>::drop` can read the ref count metadata.
     for value in to_drop.iter() {
-        value.inner().drop_t();
+        value.gc_drop_t();
     }
 
     // At this point the only references to the `CcBox<T>`s are inside the
     // `to_drop` list. Dropping `to_drop` would release the memory.
     for value in to_drop.iter() {
-        let ref_count = value.ref_count();
+        let ref_count = value.gc_ref_count();
         assert_eq!(
             ref_count, 1,
             concat!(
