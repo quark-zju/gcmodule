@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed};
 
-pub(crate) trait Usize {
+pub trait Usize {
     fn new(value: usize) -> Self;
     fn get(&self) -> usize;
     #[inline]
