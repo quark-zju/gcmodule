@@ -9,31 +9,112 @@ use crate::debug;
 use crate::Cc;
 use crate::Trace;
 use std::cell::RefCell;
+use std::marker::PhantomData;
 use std::ops::Deref;
 use std::pin::Pin;
 
-/// Collect cyclic garbage in the current thread.
-/// Return the number of objects collected.
-pub fn collect_thread_cycles() -> usize {
-    debug::log(|| ("collect", "collect_thread_cycles"));
-    GC_LIST.with(|list| {
-        let list: &GcHeader = { &list.borrow() };
-        collect_list(list)
-    })
+/// A collection of [`Cc`](struct.Cc.html)s that might form cycles with one
+/// another.
+///
+/// # Example
+///
+/// ```
+/// use gcmodule::{Cc, ObjectSpace, Trace};
+/// use std::cell::RefCell;
+///
+/// let mut space = ObjectSpace::default();
+/// assert_eq!(space.count_tracked(), 0);
+///
+/// {
+///     type List = Cc<RefCell<Vec<Box<dyn Trace>>>>;
+///     let a: List = space.create(Default::default());
+///     let b: List = space.create(Default::default());
+///     a.borrow_mut().push(Box::new(b.clone()));
+///     b.borrow_mut().push(Box::new(a.clone()));
+/// }
+///
+/// assert_eq!(space.count_tracked(), 2);
+/// assert_eq!(space.collect_cycles(), 2);
+/// ```
+///
+/// Use [`Cc::new_in_space`](struct.Cc.html#method.new_in_space).
+pub struct ObjectSpace {
+    /// Linked list to the tracked objects.
+    pub(crate) list: RefCell<Pin<Box<GcHeader>>>,
+
+    /// Mark `ObjectSpace` as `!Send` and `!Sync`. This enforces thread-exclusive
+    /// access to the linked list so methods can use `&self` instead of
+    /// `&mut self`, together with usage of interior mutability.
+    _phantom: PhantomData<Cc<()>>,
 }
 
-/// Count number of objects tracked by the collector in the current thread.
-/// Return the number of objects tracked.
-pub fn count_thread_tracked() -> usize {
-    GC_LIST.with(|list| {
-        let list: &GcHeader = { &list.borrow() };
+impl Default for ObjectSpace {
+    /// Constructs an empty [`ObjectSpace`](struct.ObjectSpace.html).
+    fn default() -> Self {
+        let header = new_gc_list();
+        Self {
+            list: RefCell::new(header),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl ObjectSpace {
+    /// Count objects tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
+    pub fn count_tracked(&self) -> usize {
+        let list: &GcHeader = &self.list.borrow();
         let mut count = 0;
         visit_list(list, |_| count += 1);
         count
-    })
+    }
+
+    /// Collect cyclic garbage tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
+    /// Return the number of objects collected.
+    pub fn collect_cycles(&self) -> usize {
+        let list: &GcHeader = &self.list.borrow();
+        collect_list(list)
+    }
+
+    /// Constructs a new [`Cc<T>`](struct.Cc.html) in this
+    /// [`ObjectSpace`](struct.ObjectSpace.html).
+    ///
+    /// The returned [`Cc<T>`](struct.Cc.html) can refer to other `Cc`s in the
+    /// same [`ObjectSpace`](struct.ObjectSpace.html).
+    ///
+    /// If a `Cc` refers to another `Cc` in another
+    /// [`ObjectSpace`](struct.ObjectSpace.html), the cyclic collector will not
+    /// be able to collect cycles.
+    pub fn create<T: Trace>(&self, value: T) -> Cc<T> {
+        // `&mut self` ensures thread-exclusive access.
+        Cc::new_in_space(value, self)
+    }
+
+    // TODO: Consider implementing "merge" or method to collect multiple spaces
+    // together, to make it easier to support generational collection.
 }
 
-thread_local!(pub(crate) static GC_LIST: RefCell<Pin<Box<GcHeader>>> = RefCell::new(new_gc_list()));
+impl Drop for ObjectSpace {
+    fn drop(&mut self) {
+        self.collect_cycles();
+    }
+}
+
+/// Collect cyclic garbage in the current thread created by
+/// [`Cc::new`](struct.Cc.html#method.new).
+/// Return the number of objects collected.
+pub fn collect_thread_cycles() -> usize {
+    debug::log(|| ("collect", "collect_thread_cycles"));
+    THREAD_OBJECT_SPACE.with(|list| list.collect_cycles())
+}
+
+/// Count number of objects tracked by the collector in the current thread
+/// created by [`Cc::new`](struct.Cc.html#method.new).
+/// Return the number of objects tracked.
+pub fn count_thread_tracked() -> usize {
+    THREAD_OBJECT_SPACE.with(|list| list.count_tracked())
+}
+
+thread_local!(pub(crate) static THREAD_OBJECT_SPACE: ObjectSpace = ObjectSpace::default());
 
 /// Create an empty linked list with a dummy GcHeader.
 fn new_gc_list() -> Pin<Box<GcHeader>> {

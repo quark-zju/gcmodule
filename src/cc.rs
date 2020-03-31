@@ -2,6 +2,7 @@ use crate::collect;
 use crate::debug;
 use crate::trace::Trace;
 use crate::trace::Tracer;
+use crate::ObjectSpace;
 use std::any::Any;
 use std::cell::Cell;
 use std::cell::UnsafeCell;
@@ -190,8 +191,19 @@ impl GcHeader {
 }
 
 impl<T: Trace> Cc<T> {
-    /// Constructs a new [`Cc<T>`](struct.Cc.html).
+    /// Constructs a new [`Cc<T>`](struct.Cc.html) in a thread-local storage.
+    ///
+    /// To collect cycles, call `collect::collect_thread_cycles`.
     pub fn new(value: T) -> Cc<T> {
+        collect::THREAD_OBJECT_SPACE.with(|space| Self::new_in_space(value, space))
+    }
+
+    /// Constructs a new [`Cc<T>`](struct.Cc.html) in the given
+    /// [`ObjectSpace`](struct.ObjectSpace.html).
+    ///
+    /// To collect cycles, call
+    /// [`space.collect_cycles`](struct.ObjectSpace.html#method.collect_cycles).
+    pub(crate) fn new_in_space(value: T, space: &ObjectSpace) -> Cc<T> {
         let is_tracked = T::is_type_tracked();
         let cc_box = CcBox {
             ref_count: Cell::new(
@@ -213,12 +225,8 @@ impl<T: Trace> Cc<T> {
             let mut boxed = Box::new(cc_box_with_header);
             // Fix-up fields in GcHeader. This is done after the creation of the
             // Box so the memory addresses are stable.
-            collect::GC_LIST.with(|ref_head| {
-                let head = ref_head.borrow();
-                boxed
-                    .gc_header
-                    .insert_into_linked_list(&head, &boxed.cc_box);
-            });
+            let head = &space.list.borrow();
+            boxed.gc_header.insert_into_linked_list(head, &boxed.cc_box);
             debug_assert_eq!(
                 mem::size_of::<GcHeader>() + mem::size_of::<CcBox<T>>(),
                 mem::size_of::<CcBoxWithGcHeader<T>>()
