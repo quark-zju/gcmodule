@@ -178,7 +178,7 @@ pub fn count_thread_tracked() -> usize {
 thread_local!(pub(crate) static THREAD_OBJECT_SPACE: CcObjectSpace = CcObjectSpace::default());
 
 /// Create an empty linked list with a dummy GcHeader.
-fn new_gc_list() -> Pin<Box<GcHeader>> {
+pub(crate) fn new_gc_list() -> Pin<Box<GcHeader>> {
     let pinned = Box::pin(GcHeader::empty());
     let header: &GcHeader = pinned.deref();
     header.prev.set(header);
@@ -187,14 +187,14 @@ fn new_gc_list() -> Pin<Box<GcHeader>> {
 }
 
 /// Scan the specified linked list. Collect cycles.
-fn collect_list(list: &GcHeader) -> usize {
+pub(crate) fn collect_list(list: &GcHeader) -> usize {
     update_refs(list);
     subtract_refs(list);
     release_unreachable(list)
 }
 
 /// Visit the linked list.
-fn visit_list<'a>(list: &'a GcHeader, mut func: impl FnMut(&'a GcHeader)) {
+pub(crate) fn visit_list<'a>(list: &'a GcHeader, mut func: impl FnMut(&'a GcHeader)) {
     // Skip the first dummy entry.
     let mut ptr = list.next.get();
     while ptr != list {
