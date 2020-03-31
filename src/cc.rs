@@ -512,7 +512,7 @@ impl<T: Trace, I: Usize> GcClone for AbstractCc<T, I> {
     }
 }
 
-impl<T: Trace> Trace for Cc<T> {
+impl<T: Trace, I: Usize> Trace for AbstractCc<T, I> {
     fn trace(&self, tracer: &mut Tracer) {
         self.inner().trace_t(tracer)
     }
@@ -527,7 +527,7 @@ impl<T: Trace> Trace for Cc<T> {
     }
 }
 
-impl Trace for Cc<dyn Trace> {
+impl<I: Usize> Trace for AbstractCc<dyn Trace, I> {
     fn trace(&self, tracer: &mut Tracer) {
         self.inner().trace_t(tracer)
     }
@@ -543,20 +543,20 @@ impl Trace for Cc<dyn Trace> {
     }
 }
 
-impl Cc<dyn Trace> {
+impl<I: Usize> AbstractCc<dyn Trace, I> {
     /// Attempt to downcast to the specified type.
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         self.deref().as_any().and_then(|any| any.downcast_ref())
     }
 
     /// Attempt to downcast to the specified `Cc<T>` type.
-    pub fn downcast<T: Trace>(self) -> Result<Cc<T>, Cc<dyn Trace>> {
+    pub fn downcast<T: Trace>(self) -> Result<AbstractCc<T, I>, AbstractCc<dyn Trace, I>> {
         if self.downcast_ref::<T>().is_some() {
             // safety: type T is checked above. The first pointer of the fat
             // pointer (Cc<dyn Trace>) matches the raw CcBox pointer.
-            let fat_ptr: (*mut CcBox<T, Cell<usize>>, *mut ()) = unsafe { mem::transmute(self) };
+            let fat_ptr: (*mut CcBox<T, I>, *mut ()) = unsafe { mem::transmute(self) };
             let non_null = unsafe { NonNull::new_unchecked(fat_ptr.0) };
-            let result: Cc<T> = AbstractCc(non_null);
+            let result: AbstractCc<T, I> = AbstractCc(non_null);
             Ok(result)
         } else {
             Err(self)
@@ -565,7 +565,10 @@ impl Cc<dyn Trace> {
 }
 
 #[cfg(feature = "nightly")]
-impl<T: ?Sized + std::marker::Unsize<U>, U: ?Sized> std::ops::CoerceUnsized<Cc<U>> for Cc<T> {}
+impl<T: ?Sized + std::marker::Unsize<U>, U: ?Sized, I: Usize>
+    std::ops::CoerceUnsized<AbstractCc<U, I>> for AbstractCc<T, I>
+{
+}
 
 #[inline]
 unsafe fn cast_ref<T: ?Sized, R>(value: &T, offset_bytes: isize) -> &R {

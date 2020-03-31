@@ -1,59 +1,62 @@
-//! Additional impls about `Cc<T>` to make it easier to use.
+//! Additional impls about `AbstractCc<T, I>` to make it easier to use.
 
-use crate::{Cc, Trace};
+use crate::cc::AbstractCc;
+use crate::mutable_usize::Usize;
+use crate::Cc;
+use crate::Trace;
 use std::cmp::Ordering;
 
-impl<T: Default + Trace + 'static> Default for Cc<T> {
+impl<T: Default + Trace> Default for Cc<T> {
     #[inline]
     fn default() -> Cc<T> {
-        Cc::new(Default::default())
+        Self::new(Default::default())
     }
 }
 
-impl<T: PartialEq> PartialEq for Cc<T> {
+impl<T: PartialEq, I: Usize> PartialEq for AbstractCc<T, I> {
     #[inline]
-    fn eq(&self, other: &Cc<T>) -> bool {
+    fn eq(&self, other: &AbstractCc<T, I>) -> bool {
         **self == **other
     }
 
     #[inline]
-    fn ne(&self, other: &Cc<T>) -> bool {
+    fn ne(&self, other: &AbstractCc<T, I>) -> bool {
         **self != **other
     }
 }
 
-impl<T: Eq> Eq for Cc<T> {}
+impl<T: Eq, I: Usize> Eq for AbstractCc<T, I> {}
 
-impl<T: PartialOrd> PartialOrd for Cc<T> {
+impl<T: PartialOrd, I: Usize> PartialOrd for AbstractCc<T, I> {
     #[inline]
-    fn partial_cmp(&self, other: &Cc<T>) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &AbstractCc<T, I>) -> Option<Ordering> {
         (**self).partial_cmp(&**other)
     }
 
     #[inline]
-    fn lt(&self, other: &Cc<T>) -> bool {
+    fn lt(&self, other: &AbstractCc<T, I>) -> bool {
         **self < **other
     }
 
     #[inline]
-    fn le(&self, other: &Cc<T>) -> bool {
+    fn le(&self, other: &AbstractCc<T, I>) -> bool {
         **self <= **other
     }
 
     #[inline]
-    fn gt(&self, other: &Cc<T>) -> bool {
+    fn gt(&self, other: &AbstractCc<T, I>) -> bool {
         **self > **other
     }
 
     #[inline]
-    fn ge(&self, other: &Cc<T>) -> bool {
+    fn ge(&self, other: &AbstractCc<T, I>) -> bool {
         **self >= **other
     }
 }
 
-impl<T: Ord> Ord for Cc<T> {
+impl<T: Ord, I: Usize> Ord for AbstractCc<T, I> {
     #[inline]
-    fn cmp(&self, other: &Cc<T>) -> Ordering {
+    fn cmp(&self, other: &AbstractCc<T, I>) -> Ordering {
         (**self).cmp(&**other)
     }
 }
