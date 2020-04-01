@@ -1,5 +1,3 @@
-use parking_lot::lock_api::RwLockReadGuard;
-use parking_lot::RawRwLock;
 use std::cell::Cell;
 
 /// Whether a `GcHeader` exists before the `CcBox<T>`.
@@ -19,8 +17,20 @@ pub trait RefCount: 'static {
     fn ref_count(&self) -> usize;
     fn set_dropped(&self) -> bool;
 
+    // Ideally this can be "type Locked<'a> = ..." so there is no need to
+    // duplicate the function to make parking_lot optional. However it's not in
+    // stable Rust yet. See https://github.com/rust-lang/rust/issues/44265.
+    #[cfg(not(feature = "sync"))]
     #[inline]
-    fn locked(&self) -> Option<RwLockReadGuard<'_, RawRwLock, ()>> {
+    fn locked(&self) -> () {
+        ()
+    }
+
+    #[cfg(feature = "sync")]
+    #[inline]
+    fn locked(
+        &self,
+    ) -> Option<parking_lot::lock_api::RwLockReadGuard<'_, parking_lot::RawRwLock, ()>> {
         None
     }
 }

@@ -126,7 +126,7 @@ fn test_racy_threads_drops() {
 
 #[test]
 fn test_racy_threads_collects() {
-    test_racy_threads(32, 10, 0xffffffff, 0xffffffff);
+    test_racy_threads(32, 20, 0xffffffff, 0xffffffff);
 }
 
 #[test]
