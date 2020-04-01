@@ -218,7 +218,7 @@ impl<T: Trace + Clone> Cc<T> {
     ///
     /// If the ref count is 1, the value is updated in-place.
     /// Otherwise a new `Cc<T>` will be created.
-    pub fn cow_update(&mut self, mut update_func: impl FnMut(&mut T)) {
+    pub fn update_with(&mut self, mut update_func: impl FnMut(&mut T)) {
         let need_clone = self.ref_count() > 1;
         if need_clone {
             let mut value = <Cc<T>>::deref(self).clone();
