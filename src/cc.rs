@@ -2,7 +2,7 @@ use crate::collect;
 use crate::collect::CcObjectSpace;
 use crate::collect::ObjectSpace;
 use crate::debug;
-use crate::mutable_usize::Usize;
+use crate::ref_count::RefCount;
 use crate::trace::Trace;
 use crate::trace::Tracer;
 use std::any::Any;
@@ -86,15 +86,6 @@ impl<T: UnwindSafe + ?Sized> UnwindSafe for CcBox<T, CcObjectSpace> {}
 // as a "const" pointer. If `T` is unwind-safe, so does `Cc<T>`.
 impl<T: UnwindSafe + ?Sized> UnwindSafe for Cc<T> {}
 
-/// Whether a `GcHeader` exists before the `CcBox<T>`.
-const REF_COUNT_MASK_TRACKED: usize = 0b1;
-
-/// Whether `T` in the `CcBox<T>` has been dropped.
-const REF_COUNT_MASK_DROPPED: usize = 0b10;
-
-/// Number of bits used for metadata.
-const REF_COUNT_SHIFT: i32 = 2;
-
 /// Type-erased `Cc<T>` with interfaces needed by GC.
 ///
 /// This is a private type.
@@ -163,14 +154,7 @@ impl<T: Trace, O: ObjectSpace> AbstractCc<T, O> {
     pub(crate) fn new_in_space(value: T, space: &O) -> Self {
         let is_tracked = T::is_type_tracked();
         let cc_box = CcBox {
-            ref_count: O::RefCount::new(
-                (1 << REF_COUNT_SHIFT)
-                    + if is_tracked {
-                        REF_COUNT_MASK_TRACKED
-                    } else {
-                        0
-                    },
-            ),
+            ref_count: space.new_ref_count(is_tracked),
             value: UnsafeCell::new(ManuallyDrop::new(value)),
             #[cfg(test)]
             name: debug::NEXT_DEBUG_NAME.with(|n| n.get().to_string()),
@@ -249,16 +233,6 @@ impl<T: Trace + Clone> Cc<T> {
 
 impl<T: ?Sized, O: ObjectSpace> CcBox<T, O> {
     #[inline]
-    fn is_tracked(&self) -> bool {
-        (self.ref_count.get_relaxed() & REF_COUNT_MASK_TRACKED) != 0
-    }
-
-    #[inline]
-    fn is_dropped(&self) -> bool {
-        (self.ref_count.get() & REF_COUNT_MASK_DROPPED) != 0
-    }
-
-    #[inline]
     fn header_ptr(&self) -> *const () {
         self.header() as *const _ as _
     }
@@ -271,29 +245,38 @@ impl<T: ?Sized, O: ObjectSpace> CcBox<T, O> {
     }
 
     #[inline]
+    fn is_tracked(&self) -> bool {
+        self.ref_count.is_tracked()
+    }
+
+    #[inline]
+    fn is_dropped(&self) -> bool {
+        self.ref_count.is_dropped()
+    }
+
+    #[inline]
     fn inc_ref(&self) -> usize {
-        self.ref_count.fetch_add(1 << REF_COUNT_SHIFT)
+        self.ref_count.inc_ref()
     }
 
     #[inline]
     fn dec_ref(&self) -> usize {
-        self.ref_count.fetch_sub(1 << REF_COUNT_SHIFT)
+        self.ref_count.dec_ref()
     }
 
     #[inline]
     fn ref_count(&self) -> usize {
-        self.ref_count.get() >> REF_COUNT_SHIFT
+        self.ref_count.ref_count()
     }
 
     #[inline]
-    fn set_dropped(&self) -> usize {
-        self.ref_count.fetch_or(REF_COUNT_MASK_DROPPED)
+    fn set_dropped(&self) -> bool {
+        self.ref_count.set_dropped()
     }
 
     #[inline]
     pub(crate) fn drop_t(&self) {
-        let old_value = self.set_dropped();
-        let already_dropped = old_value & REF_COUNT_MASK_DROPPED != 0;
+        let already_dropped = self.set_dropped();
         if !already_dropped {
             debug::log(|| (self.debug_name(), "drop (T)"));
             // safety: is_dropped() check ensures T is only dropped once. Other
@@ -415,8 +398,8 @@ impl<T: ?Sized, O: ObjectSpace> Drop for AbstractCc<T, O> {
     fn drop(&mut self) {
         let old_ref_count = self.dec_ref();
         debug::log(|| (self.debug_name(), format!("drop ({})", self.ref_count())));
-        debug_assert!((old_ref_count >> REF_COUNT_SHIFT) >= 1);
-        if (old_ref_count >> REF_COUNT_SHIFT) == 1 {
+        debug_assert!(old_ref_count >= 1);
+        if old_ref_count == 1 {
             // safety: CcBox lifetime maintained by ref count.
             drop_ccbox(unsafe { self.0.as_mut() });
         }

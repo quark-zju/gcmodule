@@ -8,7 +8,8 @@ use crate::cc::CcDummy;
 use crate::cc::CcDyn;
 use crate::cc::GcClone;
 use crate::debug;
-use crate::mutable_usize::Usize;
+use crate::ref_count;
+use crate::ref_count::RefCount;
 use crate::Cc;
 use crate::Trace;
 use std::cell::Cell;
@@ -55,7 +56,7 @@ pub struct CcObjectSpace {
 
 /// This is a private type.
 pub trait ObjectSpace: 'static + Sized {
-    type RefCount: Usize;
+    type RefCount: RefCount;
     type Header;
 
     /// Insert "header" and "value" to the linked list.
@@ -63,6 +64,9 @@ pub trait ObjectSpace: 'static + Sized {
 
     /// Remove from linked list.
     fn remove(header: &Self::Header);
+
+    /// Create a `RefCount` object.
+    fn new_ref_count(&self, tracked: bool) -> Self::RefCount;
 
     fn default_header(&self) -> Self::Header;
 }
@@ -103,6 +107,18 @@ impl ObjectSpace for CcObjectSpace {
         header.next.set(std::ptr::null_mut());
     }
 
+    #[inline]
+    fn new_ref_count(&self, tracked: bool) -> Self::RefCount {
+        let value = (1 << ref_count::REF_COUNT_SHIFT)
+            | if tracked {
+                ref_count::REF_COUNT_MASK_TRACKED
+            } else {
+                0
+            };
+        Cell::new(value)
+    }
+
+    #[inline]
     fn default_header(&self) -> Self::Header {
         GcHeader::empty()
     }
