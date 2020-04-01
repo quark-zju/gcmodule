@@ -68,7 +68,7 @@ pub trait ObjectSpace: 'static + Sized {
     /// Create a `RefCount` object.
     fn new_ref_count(&self, tracked: bool) -> Self::RefCount;
 
-    fn default_header(&self) -> Self::Header;
+    fn empty_header(&self) -> Self::Header;
 }
 
 impl ObjectSpace for CcObjectSpace {
@@ -112,7 +112,7 @@ impl ObjectSpace for CcObjectSpace {
     }
 
     #[inline]
-    fn default_header(&self) -> Self::Header {
+    fn empty_header(&self) -> Self::Header {
         GcHeader::empty()
     }
 }

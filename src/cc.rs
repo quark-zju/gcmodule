@@ -161,7 +161,7 @@ impl<T: Trace, O: ObjectSpace> AbstractCc<T, O> {
         };
         let ccbox_ptr: *mut CcBox<T, O> = if is_tracked {
             // Create a GcHeader before the CcBox. This is similar to cpython.
-            let header = space.default_header();
+            let header = space.empty_header();
             let cc_box_with_header = AbstractCcBoxWithGcHeader { header, cc_box };
             let mut boxed = Box::new(cc_box_with_header);
             // Fix-up fields in GcHeader. This is done after the creation of the

@@ -88,7 +88,7 @@ impl ObjectSpace for AccObjectSpace {
         ThreadedRefCount::new(tracked, self.collector_lock.clone())
     }
 
-    fn default_header(&self) -> Self::Header {
+    fn empty_header(&self) -> Self::Header {
         let linked_list_lock = self.list.linked_list_lock.clone();
         Self::Header {
             linked_list_lock,
