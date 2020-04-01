@@ -166,7 +166,7 @@ impl<T: Trace, O: ObjectSpace> AbstractCc<T, O> {
             let mut boxed = Box::new(cc_box_with_header);
             // Fix-up fields in GcHeader. This is done after the creation of the
             // Box so the memory addresses are stable.
-            space.insert(&boxed.header, &boxed.cc_box);
+            space.insert(&mut boxed.header, &boxed.cc_box);
             debug_assert_eq!(
                 mem::size_of::<O::Header>() + mem::size_of::<CcBox<T, O>>(),
                 mem::size_of::<AbstractCcBoxWithGcHeader<T, O>>()

@@ -21,8 +21,9 @@ pub struct Header {
     prev: Cell<*const Header>,
 
     /// Vtable of (`&CcBox<T> as &dyn CcDyn`)
-    ccdyn_vptr: Cell<*mut ()>,
+    ccdyn_vptr: *const (),
 
+    /// Lock for mutating the linked list.
     lock: Arc<Mutex<()>>,
 }
 
@@ -42,11 +43,10 @@ impl ObjectSpace for AccObjectSpace {
     type RefCount = ThreadedRefCount;
     type Header = Header;
 
-    fn insert(&self, header: &Self::Header, value: &dyn CcDyn) {
+    fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn) {
         debug_assert!(Arc::ptr_eq(&header.lock, &self.list.lock));
         // Should be locked by `create()` already.
         debug_assert!(self.list.lock.try_lock().is_none());
-        let header: &Header = &header;
         let prev: &Header = &self.list;
         debug_assert!(!collect::is_collecting(prev));
         debug_assert!(header.next.get().is_null());
@@ -58,7 +58,7 @@ impl ObjectSpace for AccObjectSpace {
             (&*next).prev.set(header);
             // safety: To access vtable pointer. Test by test_gc_header_value.
             let fat_ptr: [*mut (); 2] = mem::transmute(value);
-            header.ccdyn_vptr.set(fat_ptr[1]);
+            header.ccdyn_vptr = fat_ptr[1];
         }
         prev.next.set(header);
     }
@@ -91,7 +91,7 @@ impl ObjectSpace for AccObjectSpace {
             lock,
             next: Cell::new(std::ptr::null()),
             prev: Cell::new(std::ptr::null()),
-            ccdyn_vptr: Cell::new(CcDummy::ccdyn_vptr()),
+            ccdyn_vptr: CcDummy::ccdyn_vptr(),
         }
     }
 }
@@ -103,7 +103,7 @@ impl Default for AccObjectSpace {
         let pinned = Box::pin(Header {
             prev: Cell::new(std::ptr::null()),
             next: Cell::new(std::ptr::null()),
-            ccdyn_vptr: Cell::new(CcDummy::ccdyn_vptr()),
+            ccdyn_vptr: CcDummy::ccdyn_vptr(),
             lock,
         });
         let header: &Header = &pinned;
@@ -173,8 +173,8 @@ impl Linked for Header {
         // safety: To build trait object from self and vtable pointer.
         // Test by test_gc_header_value_consistency().
         unsafe {
-            let fat_ptr: (*const (), *mut ()) =
-                ((self as *const Self).offset(1) as _, self.ccdyn_vptr.get());
+            let fat_ptr: (*const (), *const ()) =
+                ((self as *const Self).offset(1) as _, self.ccdyn_vptr);
             mem::transmute(fat_ptr)
         }
     }

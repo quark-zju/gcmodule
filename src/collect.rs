@@ -60,7 +60,7 @@ pub trait ObjectSpace: 'static + Sized {
     type Header;
 
     /// Insert "header" and "value" to the linked list.
-    fn insert(&self, header: &Self::Header, value: &dyn CcDyn);
+    fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn);
 
     /// Remove from linked list.
     fn remove(header: &Self::Header);
@@ -75,8 +75,7 @@ impl ObjectSpace for CcObjectSpace {
     type RefCount = Cell<usize>;
     type Header = GcHeader;
 
-    fn insert(&self, header: &Self::Header, value: &dyn CcDyn) {
-        let header: &GcHeader = &header;
+    fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn) {
         let prev: &GcHeader = &self.list.borrow();
         debug_assert!(header.next.get().is_null());
         let next = prev.next.get();
@@ -87,7 +86,7 @@ impl ObjectSpace for CcObjectSpace {
             (&*next).prev.set(header);
             // safety: To access vtable pointer. Test by test_gc_header_value.
             let fat_ptr: [*mut (); 2] = mem::transmute(value);
-            header.ccdyn_vptr.set(fat_ptr[1]);
+            header.ccdyn_vptr = fat_ptr[1];
         }
         prev.next.set(header);
     }
@@ -191,7 +190,7 @@ pub struct GcHeader {
     pub(crate) prev: Cell<*const GcHeader>,
 
     /// Vtable of (`&CcBox<T> as &dyn CcDyn`)
-    pub(crate) ccdyn_vptr: Cell<*mut ()>,
+    pub(crate) ccdyn_vptr: *const (),
 }
 
 impl Linked for GcHeader {
@@ -212,8 +211,8 @@ impl Linked for GcHeader {
         // safety: To build trait object from self and vtable pointer.
         // Test by test_gc_header_value_consistency().
         unsafe {
-            let fat_ptr: (*const (), *mut ()) =
-                ((self as *const Self).offset(1) as _, self.ccdyn_vptr.get());
+            let fat_ptr: (*const (), *const ()) =
+                ((self as *const Self).offset(1) as _, self.ccdyn_vptr);
             mem::transmute(fat_ptr)
         }
     }
@@ -225,7 +224,7 @@ impl GcHeader {
         Self {
             next: Cell::new(std::ptr::null()),
             prev: Cell::new(std::ptr::null()),
-            ccdyn_vptr: Cell::new(CcDummy::ccdyn_vptr()),
+            ccdyn_vptr: CcDummy::ccdyn_vptr(),
         }
     }
 }
