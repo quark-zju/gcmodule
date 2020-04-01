@@ -148,7 +148,7 @@ impl CcObjectSpace {
     /// Return the number of objects collected.
     pub fn collect_cycles(&self) -> usize {
         let list: &GcHeader = &self.list.borrow();
-        collect_list(list, (), ())
+        collect_list(list, ())
     }
 
     /// Constructs a new [`Cc<T>`](struct.Cc.html) in this
@@ -257,14 +257,10 @@ pub(crate) fn new_gc_list() -> Pin<Box<GcHeader>> {
 }
 
 /// Scan the specified linked list. Collect cycles.
-pub(crate) fn collect_list<L: Linked, K1, K2>(
-    list: &L,
-    linked_list_lock: K1,
-    ref_count_lock: K2,
-) -> usize {
+pub(crate) fn collect_list<L: Linked, K>(list: &L, lock: K) -> usize {
     update_refs(list);
     subtract_refs(list);
-    release_unreachable(list, linked_list_lock, ref_count_lock)
+    release_unreachable(list, lock)
 }
 
 /// Visit the linked list.
@@ -348,11 +344,7 @@ fn mark_reachable<L: Linked>(list: &L) {
 }
 
 /// Release unreachable objects in the linked list.
-fn release_unreachable<L: Linked, K1, K2>(
-    list: &L,
-    linked_list_lock: K1,
-    ref_count_lock: K2,
-) -> usize {
+fn release_unreachable<L: Linked, K>(list: &L, lock: K) -> usize {
     // Mark reachable objects. For example, A refers B. A's gc_ref_count
     // is 1 while B's gc_ref_count is 0. In this case B should be revived
     // by A's non-zero gc_ref_count.
@@ -384,9 +376,13 @@ fn release_unreachable<L: Linked, K1, K2>(
     // Restore "prev" so deleting nodes from the linked list can work.
     restore_prev(list);
 
-    // Drop the ref count lock so reference counts can be changed.
-    // This is needed because gc_drop_t might change the ref counts.
-    drop(ref_count_lock);
+    // Drop the lock so deref() can work, reference counts and the linked list
+    // can be changed. This is needed because gc_drop_t might change the ref
+    // counts. This is okay for linked list because objects has been cloned
+    // to a separate `to_drop` list and the original linked list is no longer
+    // used.
+    drop(lock);
+    drop(list);
 
     // Drop `T` without releasing memory of `CcBox<T>`. This might trigger some
     // recursive drops of other `Cc<T>`. `CcBox<T>` need to stay alive so
@@ -407,11 +403,6 @@ fn release_unreachable<L: Linked, K1, K2>(
             )
         );
     }
-
-    // Drop the linked list lock.
-    // This is needed because dropping `to_drop` will change the linked list
-    // by ObjectSpace::remove, which might need to lock.
-    drop(linked_list_lock);
 
     count
 }

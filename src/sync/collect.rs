@@ -135,7 +135,7 @@ impl AccObjectSpace {
         let linked_list_lock = self.list.lock.lock();
         debug::log(|| ("AccObjectSpace", "start collect_cycles with lock"));
         let list: &Header = &self.list;
-        let result = collect::collect_list(list, linked_list_lock, ref_lock);
+        let result = collect::collect_list(list, (linked_list_lock, ref_lock));
         debug::log(|| ("AccObjectSpace", "end collect_cycles"));
         result
     }
