@@ -35,40 +35,49 @@ pub trait RefCount: 'static {
     }
 }
 
-impl RefCount for Cell<usize> {
+pub struct SingleThreadRefCount(Cell<usize>);
+
+impl SingleThreadRefCount {
+    pub fn new(tracked: bool) -> Self {
+        let value = (1 << REF_COUNT_SHIFT) | if tracked { REF_COUNT_MASK_TRACKED } else { 0 };
+        Self(Cell::new(value))
+    }
+}
+
+impl RefCount for SingleThreadRefCount {
     #[inline]
     fn is_tracked(&self) -> bool {
-        Cell::get(self) & REF_COUNT_MASK_TRACKED != 0
+        Cell::get(&self.0) & REF_COUNT_MASK_TRACKED != 0
     }
 
     #[inline]
     fn is_dropped(&self) -> bool {
-        Cell::get(self) & REF_COUNT_MASK_DROPPED != 0
+        Cell::get(&self.0) & REF_COUNT_MASK_DROPPED != 0
     }
 
     #[inline]
     fn set_dropped(&self) -> bool {
-        let value = Cell::get(self);
-        self.set(value | REF_COUNT_MASK_DROPPED);
+        let value = Cell::get(&self.0);
+        self.0.set(value | REF_COUNT_MASK_DROPPED);
         value & REF_COUNT_MASK_DROPPED != 0
     }
 
     #[inline]
     fn ref_count(&self) -> usize {
-        self.get() >> REF_COUNT_SHIFT
+        self.0.get() >> REF_COUNT_SHIFT
     }
 
     #[inline]
     fn inc_ref(&self) -> usize {
-        let value = Cell::get(self);
-        self.set(value + (1 << REF_COUNT_SHIFT));
+        let value = Cell::get(&self.0);
+        self.0.set(value + (1 << REF_COUNT_SHIFT));
         value >> REF_COUNT_SHIFT
     }
 
     #[inline]
     fn dec_ref(&self) -> usize {
-        let value = Cell::get(self);
-        self.set(value - (1 << REF_COUNT_SHIFT));
+        let value = Cell::get(&self.0);
+        self.0.set(value - (1 << REF_COUNT_SHIFT));
         value >> REF_COUNT_SHIFT
     }
 }

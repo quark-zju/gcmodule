@@ -8,8 +8,8 @@ use crate::cc::CcDummy;
 use crate::cc::CcDyn;
 use crate::cc::GcClone;
 use crate::debug;
-use crate::ref_count;
 use crate::ref_count::RefCount;
+use crate::ref_count::SingleThreadRefCount;
 use crate::Cc;
 use crate::Trace;
 use std::cell::Cell;
@@ -72,7 +72,7 @@ pub trait ObjectSpace: 'static + Sized {
 }
 
 impl ObjectSpace for CcObjectSpace {
-    type RefCount = Cell<usize>;
+    type RefCount = SingleThreadRefCount;
     type Header = GcHeader;
 
     fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn) {
@@ -108,13 +108,7 @@ impl ObjectSpace for CcObjectSpace {
 
     #[inline]
     fn new_ref_count(&self, tracked: bool) -> Self::RefCount {
-        let value = (1 << ref_count::REF_COUNT_SHIFT)
-            | if tracked {
-                ref_count::REF_COUNT_MASK_TRACKED
-            } else {
-                0
-            };
-        Cell::new(value)
+        SingleThreadRefCount::new(tracked)
     }
 
     #[inline]
