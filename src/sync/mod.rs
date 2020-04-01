@@ -1,4 +1,5 @@
 mod collect;
+mod ref_count;
 
 #[cfg(test)]
 mod tests;

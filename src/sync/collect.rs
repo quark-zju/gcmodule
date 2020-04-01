@@ -1,3 +1,4 @@
+use super::ref_count::ThreadedRefCount;
 use super::Acc;
 use crate::cc::CcDummy;
 use crate::cc::CcDyn;
@@ -5,7 +6,6 @@ use crate::collect;
 use crate::collect::Linked;
 use crate::collect::ObjectSpace;
 use crate::debug;
-use crate::ref_count::ThreadedRefCount;
 use crate::Trace;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
