@@ -4,7 +4,7 @@ mod ref_count;
 #[cfg(test)]
 mod tests;
 
-use crate::cc::AbstractCc;
+use crate::cc::RawCc;
 use crate::ref_count::RefCount;
 use crate::Trace;
 use crate::Tracer;
@@ -19,7 +19,7 @@ use std::ops::Deref;
 ///
 /// [`Acc`](struct.Acc.html) is similar to [`Cc`](struct.Cc.html). It is slower
 /// but can work in multiple threads.
-pub type Acc<T> = AbstractCc<T, AccObjectSpace>;
+pub type Acc<T> = RawCc<T, AccObjectSpace>;
 
 /// Reference to `Acc<T>`.
 pub struct AccRef<'a, T: ?Sized> {

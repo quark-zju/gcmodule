@@ -1,6 +1,6 @@
 //! Additional impls about `AbstractCc<T, O>` to make it easier to use.
 
-use crate::cc::AbstractCc;
+use crate::cc::RawCc;
 use crate::collect::ObjectSpace as O;
 use crate::Cc;
 use crate::Trace;
@@ -13,50 +13,50 @@ impl<T: Default + Trace> Default for Cc<T> {
     }
 }
 
-impl<T: PartialEq> PartialEq for AbstractCc<T, O> {
+impl<T: PartialEq> PartialEq for RawCc<T, O> {
     #[inline]
-    fn eq(&self, other: &AbstractCc<T, O>) -> bool {
+    fn eq(&self, other: &RawCc<T, O>) -> bool {
         **self == **other
     }
 
     #[inline]
-    fn ne(&self, other: &AbstractCc<T, O>) -> bool {
+    fn ne(&self, other: &RawCc<T, O>) -> bool {
         **self != **other
     }
 }
 
-impl<T: Eq> Eq for AbstractCc<T, O> {}
+impl<T: Eq> Eq for RawCc<T, O> {}
 
-impl<T: PartialOrd> PartialOrd for AbstractCc<T, O> {
+impl<T: PartialOrd> PartialOrd for RawCc<T, O> {
     #[inline]
-    fn partial_cmp(&self, other: &AbstractCc<T, O>) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &RawCc<T, O>) -> Option<Ordering> {
         (**self).partial_cmp(&**other)
     }
 
     #[inline]
-    fn lt(&self, other: &AbstractCc<T, O>) -> bool {
+    fn lt(&self, other: &RawCc<T, O>) -> bool {
         **self < **other
     }
 
     #[inline]
-    fn le(&self, other: &AbstractCc<T, O>) -> bool {
+    fn le(&self, other: &RawCc<T, O>) -> bool {
         **self <= **other
     }
 
     #[inline]
-    fn gt(&self, other: &AbstractCc<T, O>) -> bool {
+    fn gt(&self, other: &RawCc<T, O>) -> bool {
         **self > **other
     }
 
     #[inline]
-    fn ge(&self, other: &AbstractCc<T, O>) -> bool {
+    fn ge(&self, other: &RawCc<T, O>) -> bool {
         **self >= **other
     }
 }
 
-impl<T: Ord> Ord for AbstractCc<T, O> {
+impl<T: Ord> Ord for RawCc<T, O> {
     #[inline]
-    fn cmp(&self, other: &AbstractCc<T, O>) -> Ordering {
+    fn cmp(&self, other: &RawCc<T, O>) -> Ordering {
         (**self).cmp(&**other)
     }
 }
