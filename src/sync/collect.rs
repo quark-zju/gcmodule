@@ -3,8 +3,8 @@ use super::Acc;
 use crate::cc::CcDummy;
 use crate::cc::CcDyn;
 use crate::collect;
+use crate::collect::AbstractObjectSpace;
 use crate::collect::Linked;
-use crate::collect::ObjectSpace;
 use crate::debug;
 use crate::Trace;
 use parking_lot::Mutex;
@@ -39,7 +39,7 @@ pub struct AccObjectSpace {
 unsafe impl Send for AccObjectSpace {}
 unsafe impl Sync for AccObjectSpace {}
 
-impl ObjectSpace for AccObjectSpace {
+impl AbstractObjectSpace for AccObjectSpace {
     type RefCount = ThreadedRefCount;
     type Header = Header;
 

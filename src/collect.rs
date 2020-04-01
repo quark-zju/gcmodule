@@ -22,16 +22,16 @@ use std::pin::Pin;
 /// A collection of [`Cc`](struct.Cc.html)s that might form cycles with one
 /// another. This allows more explicit control about what to collect.
 ///
-/// Use [`CcObjectSpace::create`](struct.CcObjectSpace.html#method.create) to
+/// Use [`ObjectSpace::create`](struct.ObjectSpace.html#method.create) to
 /// create new objects within the space.
 ///
 /// # Example
 ///
 /// ```
-/// use gcmodule::{Cc, CcObjectSpace, Trace};
+/// use gcmodule::{Cc, ObjectSpace, Trace};
 /// use std::cell::RefCell;
 ///
-/// let mut space = CcObjectSpace::default();
+/// let mut space = ObjectSpace::default();
 /// assert_eq!(space.count_tracked(), 0);
 ///
 /// {
@@ -45,7 +45,7 @@ use std::pin::Pin;
 /// assert_eq!(space.count_tracked(), 2);
 /// assert_eq!(space.collect_cycles(), 2);
 /// ```
-pub struct CcObjectSpace {
+pub struct ObjectSpace {
     /// Linked list to the tracked objects.
     pub(crate) list: RefCell<Pin<Box<GcHeader>>>,
 
@@ -56,7 +56,7 @@ pub struct CcObjectSpace {
 }
 
 /// This is a private type.
-pub trait ObjectSpace: 'static + Sized {
+pub trait AbstractObjectSpace: 'static + Sized {
     type RefCount: RefCount;
     type Header;
 
@@ -72,7 +72,7 @@ pub trait ObjectSpace: 'static + Sized {
     fn empty_header(&self) -> Self::Header;
 }
 
-impl ObjectSpace for CcObjectSpace {
+impl AbstractObjectSpace for ObjectSpace {
     type RefCount = SingleThreadRefCount;
     type Header = GcHeader;
 
@@ -118,7 +118,7 @@ impl ObjectSpace for CcObjectSpace {
     }
 }
 
-impl Default for CcObjectSpace {
+impl Default for ObjectSpace {
     /// Constructs an empty [`ObjectSpace`](struct.ObjectSpace.html).
     fn default() -> Self {
         let header = new_gc_list();
@@ -129,7 +129,7 @@ impl Default for CcObjectSpace {
     }
 }
 
-impl CcObjectSpace {
+impl ObjectSpace {
     /// Count objects tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     pub fn count_tracked(&self) -> usize {
         let list: &GcHeader = &self.list.borrow();
@@ -163,7 +163,7 @@ impl CcObjectSpace {
     // together, to make it easier to support generational collection.
 }
 
-impl Drop for CcObjectSpace {
+impl Drop for ObjectSpace {
     fn drop(&mut self) {
         self.collect_cycles();
     }
@@ -239,7 +239,7 @@ pub fn count_thread_tracked() -> usize {
     THREAD_OBJECT_SPACE.with(|list| list.count_tracked())
 }
 
-thread_local!(pub(crate) static THREAD_OBJECT_SPACE: CcObjectSpace = CcObjectSpace::default());
+thread_local!(pub(crate) static THREAD_OBJECT_SPACE: ObjectSpace = ObjectSpace::default());
 
 /// Create an empty linked list with a dummy GcHeader.
 pub(crate) fn new_gc_list() -> Pin<Box<GcHeader>> {

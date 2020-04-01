@@ -1,5 +1,5 @@
 use crate::collect;
-use crate::collect::CcObjectSpace;
+use crate::collect::AbstractObjectSpace;
 use crate::collect::ObjectSpace;
 use crate::debug;
 use crate::ref_count::RefCount;
@@ -37,7 +37,7 @@ use std::ptr::NonNull;
 
 /// The data shared by multiple `Cc<T>` pointers.
 #[repr(C)]
-pub(crate) struct CcBox<T: ?Sized, O: ObjectSpace> {
+pub(crate) struct CcBox<T: ?Sized, O: AbstractObjectSpace> {
     /// The lowest REF_COUNT_SHIFT bits are used for metadata.
     /// The higher bits are used for ref count.
     pub(crate) ref_count: O::RefCount,
@@ -52,7 +52,7 @@ pub(crate) struct CcBox<T: ?Sized, O: ObjectSpace> {
 ///
 /// This is a private type.
 #[repr(C)]
-pub struct AbstractCcBoxWithGcHeader<T: ?Sized, O: ObjectSpace> {
+pub struct AbstractCcBoxWithGcHeader<T: ?Sized, O: AbstractObjectSpace> {
     header: O::Header,
     cc_box: CcBox<T, O>,
 }
@@ -73,14 +73,14 @@ pub struct AbstractCcBoxWithGcHeader<T: ?Sized, O: ObjectSpace> {
 ///     println!("{}", cc.deref());
 /// });
 /// ```
-pub type Cc<T> = AbstractCc<T, CcObjectSpace>;
+pub type Cc<T> = AbstractCc<T, ObjectSpace>;
 
 /// This is a private type.
-pub struct AbstractCc<T: ?Sized, O: ObjectSpace>(NonNull<CcBox<T, O>>);
+pub struct AbstractCc<T: ?Sized, O: AbstractObjectSpace>(NonNull<CcBox<T, O>>);
 
 // `ManuallyDrop<T>` does not implement `UnwindSafe`. But `CcBox::drop` does
 // make sure `T` is dropped. If `T` is unwind-safe, so does `CcBox<T>`.
-impl<T: UnwindSafe + ?Sized> UnwindSafe for CcBox<T, CcObjectSpace> {}
+impl<T: UnwindSafe + ?Sized> UnwindSafe for CcBox<T, ObjectSpace> {}
 
 // `NonNull` does not implement `UnwindSafe`. But `Cc` only uses it
 // as a "const" pointer. If `T` is unwind-safe, so does `Cc<T>`.
@@ -145,7 +145,7 @@ impl<T: Trace> Cc<T> {
     }
 }
 
-impl<T: Trace, O: ObjectSpace> AbstractCc<T, O> {
+impl<T: Trace, O: AbstractObjectSpace> AbstractCc<T, O> {
     /// Constructs a new [`Cc<T>`](struct.Cc.html) in the given
     /// [`ObjectSpace`](struct.ObjectSpace.html).
     ///
@@ -232,7 +232,7 @@ impl<T: Trace + Clone> Cc<T> {
     }
 }
 
-impl<T: ?Sized, O: ObjectSpace> CcBox<T, O> {
+impl<T: ?Sized, O: AbstractObjectSpace> CcBox<T, O> {
     #[inline]
     fn header_ptr(&self) -> *const () {
         self.header() as *const _ as _
@@ -311,7 +311,7 @@ impl<T: ?Sized, O: ObjectSpace> CcBox<T, O> {
     }
 }
 
-impl<T: ?Sized, O: ObjectSpace> AbstractCc<T, O> {
+impl<T: ?Sized, O: AbstractObjectSpace> AbstractCc<T, O> {
     #[inline]
     pub(crate) fn inner(&self) -> &CcBox<T, O> {
         // safety: CcBox lifetime maintained by ref count. Pointer is valid.
@@ -338,7 +338,7 @@ impl<T: ?Sized, O: ObjectSpace> AbstractCc<T, O> {
     }
 }
 
-impl<T, O: ObjectSpace> Clone for AbstractCc<T, O> {
+impl<T, O: AbstractObjectSpace> Clone for AbstractCc<T, O> {
     #[inline]
     fn clone(&self) -> Self {
         // In theory self.inner().ref_count.locked() is needed.
@@ -360,7 +360,7 @@ impl<T: ?Sized> Deref for Cc<T> {
     }
 }
 
-impl<T: ?Sized, O: ObjectSpace> Deref for CcBox<T, O> {
+impl<T: ?Sized, O: AbstractObjectSpace> Deref for CcBox<T, O> {
     type Target = T;
 
     #[inline]
@@ -380,7 +380,7 @@ impl<T: ?Sized, O: ObjectSpace> Deref for CcBox<T, O> {
     }
 }
 
-fn drop_ccbox<T: ?Sized, O: ObjectSpace>(cc_box: &mut CcBox<T, O>) {
+fn drop_ccbox<T: ?Sized, O: AbstractObjectSpace>(cc_box: &mut CcBox<T, O>) {
     // safety: See Cc::new. The pointer was created by Box::into_raw.
     let cc_box: Box<CcBox<T, O>> = unsafe { Box::from_raw(cc_box) };
     let is_tracked = cc_box.is_tracked();
@@ -403,7 +403,7 @@ fn drop_ccbox<T: ?Sized, O: ObjectSpace>(cc_box: &mut CcBox<T, O>) {
     }
 }
 
-impl<T: ?Sized, O: ObjectSpace> Drop for AbstractCc<T, O> {
+impl<T: ?Sized, O: AbstractObjectSpace> Drop for AbstractCc<T, O> {
     fn drop(&mut self) {
         let ptr: *mut CcBox<T, O> = self.0.as_ptr();
         // Block threaded collector. This is needed because "drop()" is a
@@ -419,7 +419,7 @@ impl<T: ?Sized, O: ObjectSpace> Drop for AbstractCc<T, O> {
     }
 }
 
-impl<T: Trace, O: ObjectSpace> CcDyn for CcBox<T, O> {
+impl<T: Trace, O: AbstractObjectSpace> CcDyn for CcBox<T, O> {
     fn gc_ref_count(&self) -> usize {
         self.ref_count()
     }
@@ -444,7 +444,7 @@ impl<T: Trace, O: ObjectSpace> CcDyn for CcBox<T, O> {
     }
 }
 
-impl<T: Trace, O: ObjectSpace> GcClone for AbstractCc<T, O> {
+impl<T: Trace, O: AbstractObjectSpace> GcClone for AbstractCc<T, O> {
     fn gc_ref_count(&self) -> usize {
         self.ref_count()
     }
@@ -496,7 +496,7 @@ impl Cc<dyn Trace> {
         if self.downcast_ref::<T>().is_some() {
             // safety: type T is checked above. The first pointer of the fat
             // pointer (Cc<dyn Trace>) matches the raw CcBox pointer.
-            let fat_ptr: (*mut CcBox<T, CcObjectSpace>, *mut ()) = unsafe { mem::transmute(self) };
+            let fat_ptr: (*mut CcBox<T, ObjectSpace>, *mut ()) = unsafe { mem::transmute(self) };
             let non_null = unsafe { NonNull::new_unchecked(fat_ptr.0) };
             let result: Cc<T> = AbstractCc(non_null);
             Ok(result)
@@ -521,7 +521,7 @@ unsafe fn cast_ref<T: ?Sized, R>(value: &T, offset_bytes: isize) -> &R {
 }
 
 #[inline]
-unsafe fn cast_box<T: ?Sized, O: ObjectSpace>(
+unsafe fn cast_box<T: ?Sized, O: AbstractObjectSpace>(
     value: Box<CcBox<T, O>>,
 ) -> Box<AbstractCcBoxWithGcHeader<T, O>> {
     let mut ptr: *const CcBox<T, O> = Box::into_raw(value);

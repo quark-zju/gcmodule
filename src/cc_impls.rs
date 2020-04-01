@@ -1,7 +1,7 @@
 //! Additional impls about `AbstractCc<T, O>` to make it easier to use.
 
 use crate::cc::AbstractCc;
-use crate::collect::CcObjectSpace as O;
+use crate::collect::ObjectSpace as O;
 use crate::Cc;
 use crate::Trace;
 use std::cmp::Ordering;

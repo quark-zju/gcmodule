@@ -222,7 +222,7 @@ mod trace;
 mod trace_impls;
 
 pub use cc::Cc;
-pub use collect::{collect_thread_cycles, count_thread_tracked, CcObjectSpace};
+pub use collect::{collect_thread_cycles, count_thread_tracked, ObjectSpace};
 pub use trace::{Trace, Tracer};
 
 /// Derive [`Trace`](trait.Trace.html) implementation for a structure.
