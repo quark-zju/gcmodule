@@ -50,9 +50,10 @@ Refer to [the documentation](https://docs.rs/gcmodule/) for more examples and te
 ### [bacon-rajan-cc](https://github.com/fitzgen/bacon-rajan-cc) v0.3
 
 - Both are reference counted, with cyclic garbage collection.
-- Both are single-threaded, and stop-the-world.
+- Both are mainly single-threaded, and stop-the-world.
 - Main APIs like `Cc<T>` and `Trace` are similar, or even compatible.
 - `gcmodule` is conceptually simpler. There is no need for the "colors" concept.
+- `gcmodule` provides `ThreadedCc<T>` for multi-thread environment.
 - `bacon-rajan-cc` requires manual collection to release GC metadata (but not the tracked object) even if the reference count logically drops to 0. See [this commit message](https://github.com/quark-zju/gcmodule/commit/b825bc45ac008e26ada3c13daa3efa34334f8273) for some details.
 
 ### [rcgc](https://github.com/jonas-schievink/rcgc) v0.1

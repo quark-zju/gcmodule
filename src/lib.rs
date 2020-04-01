@@ -4,7 +4,7 @@
 //! Reference cycle garbage collection inspired by
 //! [cpython](https://github.com/python/cpython/).
 //!
-//! The type [`Cc<T>`](struct.Cc.html) provides shared ownership of a value of type `T`,
+//! The type [`Cc<T>`](type.Cc.html) provides shared ownership of a value of type `T`,
 //! similar to `std::rc::Rc<T>`. Unlike `Rc<T>`, [`collect_thread_cycles`](fn.collect_thread_cycles.html)
 //! can be used to drop unreachable values that form circular references.
 //!
@@ -50,15 +50,43 @@
 //! assert_eq!(gcmodule::count_thread_tracked(), 0);   // no values are tracked.
 //! ```
 //!
+//! ## Multi-thread support
+//!
+//! The main type [`Cc`](type.cc.html) works fine in a single-thread environment.
+//!
+//! There are also [`ThreadedObjectSpace`](struct.ThreadedObjectSpace.html)
+//! and [`ThreadedCc`](type.ThreadedCc.html) for multi-thread usecases. Beware
+//! they take more memory, are slower, and a bit harder to use.
+//!
+//! ```
+//! use gcmodule::{ThreadedObjectSpace, ThreadedCc, Trace};
+//! use std::sync::Mutex;
+//!
+//! type List = ThreadedCc<Mutex<Vec<Box<dyn Trace + Send + Sync>>>>;
+//! let space = ThreadedObjectSpace::default();
+//! {
+//!     let list1: List = space.create(Mutex::new(Default::default()));
+//!     let list2: List = space.create(Mutex::new(Default::default()));
+//!     let thread = std::thread::spawn(move || {
+//!         list1.borrow().lock().unwrap().push(Box::new(list2.clone()));
+//!         list2.borrow().lock().unwrap().push(Box::new(list1.clone()));
+//!     });
+//!     thread.join().unwrap();
+//! }
+//! assert_eq!(space.count_tracked(), 2);
+//! assert_eq!(space.collect_cycles(), 2);
+//! assert_eq!(space.count_tracked(), 0);
+//! ```
+//!
 //! ## Defining new types
 //!
-//! [`Cc<T>`](struct.Cc.html) requires [`Trace`](trait.Trace.html) implemented
+//! [`Cc<T>`](type.Cc.html) requires [`Trace`](trait.Trace.html) implemented
 //! for `T` so the collector knows how values are referred. That can usually
 //! be done by `#[derive(Trace)]`.
 //!
 //! ### Acyclic types
 //!
-//! If a type is acyclic (cannot form reference circles about [`Cc`](struct.Cc.html)),
+//! If a type is acyclic (cannot form reference circles about [`Cc`](type.Cc.html)),
 //! [`Trace::is_type_tracked()`](trait.Trace.html#method.is_type_tracked) will return `false`.
 //!
 //! ```
@@ -123,7 +151,7 @@
 //!
 //! ## Memory Layouts
 //!
-//! [`Cc<T>`](struct.Cc.html) uses different memory layouts depending on `T`.
+//! [`Cc<T>`](type.Cc.html) uses different memory layouts depending on `T`.
 //!
 //! ### Untracked types
 //!
@@ -175,6 +203,12 @@
 //! referred values, the collector might fail to detect cycles, and take
 //! no actions on cycles. That causes memory leak.
 //!
+//! Note: there are other ways to cause memory leak unrelated to an incorrect
+//! [`Trace`](trait.Trace.html) implementation. For example, forgetting
+//! to call collect functions can cause memory leak. When using the advanced
+//! [`ObjectSpace`](struct.ObjectSpace.html) APIs, objects in one space
+//! referring to objects in a different space can cause memory leak.
+//!
 //! ### Panic
 //!
 //! If [`Trace::trace`](trait.Trace.html#method.trace) visits more values
@@ -190,7 +224,7 @@
 //! ### Undefined behavior (UB)
 //!
 //! After the above panic (`bug: unexpected ref-count after dropping cycles`),
-//! dereferencing a garbage-collected [`Cc<T>`](struct.Cc.html) will trigger
+//! dereferencing a garbage-collected [`Cc<T>`](type.Cc.html) will trigger
 //! `panic!` or UB depending on whether it's a debug build or not.
 //!
 //! On debug build, sanity checks are added at `Cc::<T>::deref()`.
@@ -221,9 +255,12 @@ pub mod testutil;
 mod trace;
 mod trace_impls;
 
-pub use cc::Cc;
+pub use cc::{Cc, RawCc};
 pub use collect::{collect_thread_cycles, count_thread_tracked, ObjectSpace};
 pub use trace::{Trace, Tracer};
+
+#[cfg(feature = "sync")]
+pub use sync::{collect::ThreadedObjectSpace, ThreadedCc, ThreadedCcRef};
 
 /// Derive [`Trace`](trait.Trace.html) implementation for a structure.
 ///

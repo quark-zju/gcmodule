@@ -1,5 +1,5 @@
 use super::ref_count::ThreadedRefCount;
-use super::Acc;
+use super::ThreadedCc;
 use crate::cc::CcDummy;
 use crate::cc::CcDyn;
 use crate::collect;
@@ -27,7 +27,12 @@ pub struct Header {
     linked_list_lock: Arc<Mutex<()>>,
 }
 
-pub struct AccObjectSpace {
+/// A collection of tracked [`ThreadedCc`](type.ThreadedCc.html) objects
+/// that can be garbage collected.
+///
+/// [`ThreadedObjectSpace`](struct.ThreadedObjectSpace.html) is similar to
+/// [`ObjectSpace`](struct.ObjectSpace.html) but works with multi-thread.
+pub struct ThreadedObjectSpace {
     /// Linked list to the tracked objects.
     list: Pin<Box<Header>>,
 
@@ -36,10 +41,10 @@ pub struct AccObjectSpace {
 }
 
 // safety: accesses are protected by mutex
-unsafe impl Send for AccObjectSpace {}
-unsafe impl Sync for AccObjectSpace {}
+unsafe impl Send for ThreadedObjectSpace {}
+unsafe impl Sync for ThreadedObjectSpace {}
 
-impl AbstractObjectSpace for AccObjectSpace {
+impl AbstractObjectSpace for ThreadedObjectSpace {
     type RefCount = ThreadedRefCount;
     type Header = Header;
 
@@ -99,8 +104,8 @@ impl AbstractObjectSpace for AccObjectSpace {
     }
 }
 
-impl Default for AccObjectSpace {
-    /// Constructs an empty [`AccObjectSpace`](struct.AccObjectSpace.html).
+impl Default for ThreadedObjectSpace {
+    /// Constructs an empty [`ThreadedObjectSpace`](struct.ThreadedObjectSpace.html).
     fn default() -> Self {
         let linked_list_lock = Arc::new(Mutex::new(()));
         let pinned = Box::pin(Header {
@@ -112,15 +117,16 @@ impl Default for AccObjectSpace {
         let header: &Header = &pinned;
         header.prev.set(header);
         header.next.set(header);
-        Self {
+        ThreadedObjectSpace {
             list: pinned,
             collector_lock: Default::default(),
         }
     }
 }
 
-impl AccObjectSpace {
-    /// Count objects tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
+impl ThreadedObjectSpace {
+    /// Count objects tracked by this
+    /// [`ThreadedObjectSpace`](struct.ThreadedObjectSpace.html).
     pub fn count_tracked(&self) -> usize {
         let _linked_list_lock = self.list.linked_list_lock.lock();
         let list: &Header = &self.list;
@@ -129,37 +135,31 @@ impl AccObjectSpace {
         count
     }
 
-    /// Collect cyclic garbage tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
+    /// Collect cyclic garbage tracked by this
+    /// [`ThreadedObjectSpace`](struct.ThreadedObjectSpace.html).
     /// Return the number of objects collected.
     pub fn collect_cycles(&self) -> usize {
         // Wait for complex operations (drop). Block operations (drop, deref).
         let collector_lock = self.collector_lock.write();
         // Block linked list changes (create, remove).
         let linked_list_lock = self.list.linked_list_lock.lock();
-        debug::log(|| {
-            (
-                "AccObjectSpace",
-                "start collect_cycles with linked_list_lock",
-            )
-        });
+        debug::log(|| ("ThreadedObjectSpace", "start collect_cycles"));
         let list: &Header = &self.list;
         let result = collect::collect_list(list, (linked_list_lock, collector_lock));
-        debug::log(|| ("AccObjectSpace", "end collect_cycles"));
+        debug::log(|| ("ThreadedObjectSpace", "end collect_cycles"));
         result
     }
 
-    /// Constructs a new [`Acc<T>`](struct.Acc.html) in this
-    /// [`AccObjectSpace`](struct.AccObjectSpace.html).
+    /// Constructs a new [`ThreadedCc<T>`](type.ThreadedCc.html) in this
+    /// [`ThreadedObjectSpace`](struct.ThreadedObjectSpace.html).
     ///
-    /// The returned [`Acc<T>`](struct.Cc.html) can refer to other
-    ///  `Acc`s in the same [`AccObjectSpace`](struct.AccObjectSpace.html).
-    ///
-    /// If an `Acc` refers to another `Acc` in another
-    /// [`AccObjectSpace`](struct.AccObjectSpace.html), the cyclic collector
-    /// will not be able to collect cycles.
-    pub fn create<T: Trace>(&self, value: T) -> Acc<T> {
+    /// The returned object should not refer to
+    /// [`ThreadedCc<T>`](type.ThreadedCc.html) created by a different
+    /// [`ThreadedObjectSpace`](struct.ThreadedObjectSpace.html).
+    /// Otherwise the collector might fail to collect cycles.
+    pub fn create<T: Trace>(&self, value: T) -> ThreadedCc<T> {
         let _linked_list_lock = self.list.linked_list_lock.lock();
-        Acc::new_in_space(value, self)
+        ThreadedCc::new_in_space(value, self)
     }
 }
 

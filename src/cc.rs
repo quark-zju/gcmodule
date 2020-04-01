@@ -35,7 +35,7 @@ use std::ptr::NonNull;
 //     |          | T (data)  |     +--- Cc<T> (pointer)
 //     +----------------------+
 
-/// The data shared by multiple `Cc<T>` pointers.
+/// The data shared by multiple `RawCc<T, O>` pointers.
 #[repr(C)]
 pub(crate) struct RawCcBox<T: ?Sized, O: AbstractObjectSpace> {
     /// The lowest REF_COUNT_SHIFT bits are used for metadata.
@@ -62,7 +62,7 @@ pub struct RawCcBoxWithGcHeader<T: ?Sized, O: AbstractObjectSpace> {
 ///
 /// See [module level documentation](index.html) for more details.
 ///
-/// [`Cc`](struct.Cc.html) is not thread-safe. It does not implement `Send`
+/// [`Cc`](type.Cc.html) is not thread-safe. It does not implement `Send`
 /// or `Sync`:
 ///
 /// ```compile_fail
@@ -75,7 +75,7 @@ pub struct RawCcBoxWithGcHeader<T: ?Sized, O: AbstractObjectSpace> {
 /// ```
 pub type Cc<T> = RawCc<T, ObjectSpace>;
 
-/// This is a private type.
+/// Low-level type for [`Cc<T>`](type.Cc.html).
 pub struct RawCc<T: ?Sized, O: AbstractObjectSpace>(NonNull<RawCcBox<T, O>>);
 
 // `ManuallyDrop<T>` does not implement `UnwindSafe`. But `CcBox::drop` does
@@ -137,20 +137,19 @@ impl CcDyn for CcDummy {
 }
 
 impl<T: Trace> Cc<T> {
-    /// Constructs a new [`Cc<T>`](struct.Cc.html) in a thread-local storage.
+    /// Constructs a new [`Cc<T>`](type.Cc.html) in a thread-local storage.
     ///
-    /// To collect cycles, call `collect::collect_thread_cycles`.
+    /// To collect cycles, use [`collect_thread_cycles`](fn.collect_thread_cycles.html).
     pub fn new(value: T) -> Cc<T> {
         collect::THREAD_OBJECT_SPACE.with(|space| Self::new_in_space(value, space))
     }
 }
 
 impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
-    /// Constructs a new [`Cc<T>`](struct.Cc.html) in the given
+    /// Constructs a new [`Cc<T>`](type.Cc.html) in the given
     /// [`ObjectSpace`](struct.ObjectSpace.html).
     ///
-    /// To collect cycles, call
-    /// [`space.collect_cycles`](struct.ObjectSpace.html#method.collect_cycles).
+    /// To collect cycles, call `ObjectSpace::collect_cycles()`.
     pub(crate) fn new_in_space(value: T, space: &O) -> Self {
         let is_tracked = T::is_type_tracked();
         let cc_box = RawCcBox {
@@ -189,7 +188,7 @@ impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
         result
     }
 
-    /// Convert to `Cc<dyn Trace>`.
+    /// Convert to `RawCc<dyn Trace>`.
     pub fn into_dyn(self) -> RawCc<dyn Trace, O> {
         #[cfg(feature = "nightly")]
         {

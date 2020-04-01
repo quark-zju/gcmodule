@@ -6,11 +6,11 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread::spawn;
 
-type List = Acc<Mutex<Vec<Box<dyn Trace + Send + Sync>>>>;
+type List = ThreadedCc<Mutex<Vec<Box<dyn Trace + Send + Sync>>>>;
 
 fn test_cross_thread_cycle(n: usize) {
     let list: Arc<Mutex<Vec<List>>> = Arc::new(Mutex::new(Vec::with_capacity(n)));
-    let space = Arc::new(AccObjectSpace::default());
+    let space = Arc::new(ThreadedObjectSpace::default());
     assert_eq!(space.count_tracked(), 0);
 
     let spawn_thread = |thread_id| {
@@ -24,9 +24,9 @@ fn test_cross_thread_cycle(n: usize) {
             for other in list.iter_mut() {
                 let cloned_other = other.clone();
                 let cloned_this = this.clone();
-                let this_ref = this.read();
+                let this_ref = this.borrow();
                 this_ref.lock().unwrap().push(Box::new(cloned_other));
-                let other_ref = other.read();
+                let other_ref = other.borrow();
                 other_ref.lock().unwrap().push(Box::new(cloned_this));
             }
             list.push(this);
@@ -66,7 +66,7 @@ fn test_racy_threads(
     create_cycles_bits: u32,
     collect_cycles_bits: u32,
 ) {
-    let space = Arc::new(AccObjectSpace::default());
+    let space = Arc::new(ThreadedObjectSpace::default());
     let mut tx_list = Vec::with_capacity(thread_count);
     let mut rx_list = Vec::with_capacity(thread_count);
     for _ in 0..thread_count {
@@ -88,7 +88,7 @@ fn test_racy_threads(
                         let value = Mutex::new(Vec::new());
                         let acc: List = space.create(value);
                         {
-                            let acc_ref = acc.read();
+                            let acc_ref = acc.borrow();
                             let mut locked = acc_ref.lock().unwrap();
                             while let Ok(received) = rx.try_recv() {
                                 locked.push(received);

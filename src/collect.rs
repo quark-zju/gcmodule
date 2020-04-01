@@ -19,11 +19,21 @@ use std::mem;
 use std::ops::Deref;
 use std::pin::Pin;
 
-/// A collection of [`Cc`](struct.Cc.html)s that might form cycles with one
-/// another. This allows more explicit control about what to collect.
+/// Provides advanced explicit control about where to store [`Cc`](type.Cc.html)
+/// objects.
+///
+/// An [`ObjectSpace`](struct.ObjectSpace.html) provides an alternative place for
+/// a collection of [`Cc`](type.Cc.html) objects. Those objects are isolated from
+/// the default thread-local space used by objects crated via `Cc::new`.
+/// The objects in this space can be collected by
+/// [`ObjectSpace::collect_cycles()`](struct.ObjectSpace.html#method.collect_cycles),
+/// but not [`collect_thread_cycles`](fn.collect_thread_cycles.html).
 ///
 /// Use [`ObjectSpace::create`](struct.ObjectSpace.html#method.create) to
 /// create new objects within the space.
+///
+/// Objects within a space should not refer to objects in a different space.
+/// Failing to do so might cause memory leak.
 ///
 /// # Example
 ///
@@ -145,15 +155,11 @@ impl ObjectSpace {
         collect_list(list, ())
     }
 
-    /// Constructs a new [`Cc<T>`](struct.Cc.html) in this
+    /// Constructs a new [`Cc<T>`](type.Cc.html) in this
     /// [`ObjectSpace`](struct.ObjectSpace.html).
     ///
-    /// The returned [`Cc<T>`](struct.Cc.html) can refer to other `Cc`s in the
-    /// same [`ObjectSpace`](struct.ObjectSpace.html).
-    ///
-    /// If a `Cc` refers to another `Cc` in another
-    /// [`ObjectSpace`](struct.ObjectSpace.html), the cyclic collector will not
-    /// be able to collect cycles.
+    /// The returned object should only refer to objects in the same space.
+    /// Otherwise the collector might fail to collect cycles.
     pub fn create<T: Trace>(&self, value: T) -> Cc<T> {
         // `&mut self` ensures thread-exclusive access.
         Cc::new_in_space(value, self)
@@ -225,7 +231,7 @@ impl GcHeader {
 }
 
 /// Collect cyclic garbage in the current thread created by
-/// [`Cc::new`](struct.Cc.html#method.new).
+/// [`Cc::new`](type.Cc.html#method.new).
 /// Return the number of objects collected.
 pub fn collect_thread_cycles() -> usize {
     debug::log(|| ("collect", "collect_thread_cycles"));
@@ -233,7 +239,7 @@ pub fn collect_thread_cycles() -> usize {
 }
 
 /// Count number of objects tracked by the collector in the current thread
-/// created by [`Cc::new`](struct.Cc.html#method.new).
+/// created by [`Cc::new`](type.Cc.html#method.new).
 /// Return the number of objects tracked.
 pub fn count_thread_tracked() -> usize {
     THREAD_OBJECT_SPACE.with(|list| list.count_tracked())

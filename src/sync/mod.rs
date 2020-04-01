@@ -1,4 +1,4 @@
-mod collect;
+pub(crate) mod collect;
 mod ref_count;
 
 #[cfg(test)]
@@ -8,38 +8,52 @@ use crate::cc::RawCc;
 use crate::ref_count::RefCount;
 use crate::Trace;
 use crate::Tracer;
-use collect::AccObjectSpace;
+use collect::ThreadedObjectSpace;
 use parking_lot::lock_api::RwLockReadGuard;
 use parking_lot::RawRwLock;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-/// An atomic reference-counting pointer that integrates
-/// with cyclic garbage collection.
+/// A multi-thread reference-counting pointer that integrates with cyclic
+/// garbage collection.
 ///
-/// [`Acc`](struct.Acc.html) is similar to [`Cc`](struct.Cc.html). It is slower
-/// but can work in multiple threads.
-pub type Acc<T> = RawCc<T, AccObjectSpace>;
+/// [`ThreadedCc`](type.ThreadedCc.html) is similar to [`Cc`](type.Cc.html).
+/// It works with multi-thread but is significantly slower than
+/// [`Cc`](type.Cc.html).
+///
+/// To construct a [`ThreadedCc`](type.ThreadedCc.html), use
+/// [`ThreadedObjectSpace::create`](struct.ThreadedObjectSpace.html#method.create).
+pub type ThreadedCc<T> = RawCc<T, ThreadedObjectSpace>;
 
-/// Reference to `Acc<T>`.
-pub struct AccRef<'a, T: ?Sized> {
+/// Wraps a borrowed reference to [`ThreadedCc`](type.ThreadedCc.html).
+///
+/// The wrapper automatically takes a lock that prevents the collector from
+/// running. This ensures that when the collector is running, there are no
+/// borrowed references of [`ThreadedCc`](type.ThreadedCc.html). Therefore
+/// [`ThreadedCc`](type.ThreadedCc.html)s can be seen as temporarily immutable,
+/// even if they might have interior mutability. The collector relies on this
+/// for correctness.
+pub struct ThreadedCcRef<'a, T: ?Sized> {
     // Prevent the collector from running when a reference is present.
     locked: RwLockReadGuard<'a, RawRwLock, ()>,
 
     // Provide access to the parent `Acc`.
-    parent: &'a Acc<T>,
+    parent: &'a ThreadedCc<T>,
 
     // !Send + !Sync.
     _phantom: PhantomData<*mut ()>,
 }
 
 // safety: similar to `std::sync::Arc`
-unsafe impl<T: Send + Sync> Send for Acc<T> {}
-unsafe impl<T: Send + Sync> Sync for Acc<T> {}
+unsafe impl<T: Send + Sync> Send for ThreadedCc<T> {}
+unsafe impl<T: Send + Sync> Sync for ThreadedCc<T> {}
 
-impl<T: ?Sized> Acc<T> {
-    pub fn read(&self) -> AccRef<'_, T> {
-        AccRef {
+impl<T: ?Sized> ThreadedCc<T> {
+    /// Immutably borrows the wrapped value.
+    ///
+    /// The borrow lasts until the returned value exits scope.
+    pub fn borrow(&self) -> ThreadedCcRef<'_, T> {
+        ThreadedCcRef {
             locked: self.inner().ref_count.locked().unwrap(),
             parent: self,
             _phantom: PhantomData,
@@ -47,7 +61,7 @@ impl<T: ?Sized> Acc<T> {
     }
 }
 
-impl<'a, T: ?Sized> Deref for AccRef<'a, T> {
+impl<'a, T: ?Sized> Deref for ThreadedCcRef<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -56,7 +70,7 @@ impl<'a, T: ?Sized> Deref for AccRef<'a, T> {
     }
 }
 
-impl<T: Trace> Trace for Acc<T> {
+impl<T: Trace> Trace for ThreadedCc<T> {
     fn trace(&self, tracer: &mut Tracer) {
         self.inner().trace_t(tracer)
     }
@@ -66,10 +80,10 @@ impl<T: Trace> Trace for Acc<T> {
         T::is_type_tracked()
     }
 
-    // No as_any. Enforce locking via AccRef.
+    // No as_any. This enforces locking via ThreadedCcRef.
 }
 
-impl Trace for Acc<dyn Trace> {
+impl Trace for ThreadedCc<dyn Trace> {
     fn trace(&self, tracer: &mut Tracer) {
         self.inner().trace_t(tracer)
     }
@@ -80,5 +94,33 @@ impl Trace for Acc<dyn Trace> {
         true
     }
 
-    // No as_any. Enforce locking via AccRef.
+    // No as_any. This enforces locking via ThreadedCcRef.
+}
+
+impl Trace for ThreadedCc<dyn Trace + Send> {
+    fn trace(&self, tracer: &mut Tracer) {
+        self.inner().trace_t(tracer)
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        // Trait objects can be anything.
+        true
+    }
+
+    // No as_any. This enforces locking via ThreadedCcRef.
+}
+
+impl Trace for ThreadedCc<dyn Trace + Send + Sync> {
+    fn trace(&self, tracer: &mut Tracer) {
+        self.inner().trace_t(tracer)
+    }
+
+    #[inline]
+    fn is_type_tracked() -> bool {
+        // Trait objects can be anything.
+        true
+    }
+
+    // No as_any. This enforces locking via ThreadedCcRef.
 }
