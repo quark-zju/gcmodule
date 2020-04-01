@@ -8,14 +8,14 @@ use std::sync::Arc;
 
 pub struct ThreadedRefCount {
     ref_count: AtomicUsize,
-    pub(crate) collecting: Arc<RwLock<()>>,
+    pub(crate) collector_lock: Arc<RwLock<()>>,
 }
 
 impl ThreadedRefCount {
     #[inline]
-    pub(crate) fn new(tracked: bool, collecting: Arc<RwLock<()>>) -> Self {
+    pub(crate) fn new(tracked: bool, collector_lock: Arc<RwLock<()>>) -> Self {
         Self {
-            collecting: collecting,
+            collector_lock: collector_lock,
             ref_count: AtomicUsize::new(
                 (1 << REF_COUNT_SHIFT) | if tracked { REF_COUNT_MASK_TRACKED } else { 0 },
             ),
@@ -57,6 +57,6 @@ impl RefCount for ThreadedRefCount {
 
     #[inline]
     fn locked(&self) -> Option<RwLockReadGuard<'_, RawRwLock, ()>> {
-        Some(self.collecting.read_recursive())
+        Some(self.collector_lock.read_recursive())
     }
 }

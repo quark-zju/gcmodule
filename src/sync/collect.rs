@@ -24,7 +24,7 @@ pub struct Header {
     ccdyn_vptr: *const (),
 
     /// Lock for mutating the linked list.
-    lock: Arc<Mutex<()>>,
+    linked_list_lock: Arc<Mutex<()>>,
 }
 
 pub struct AccObjectSpace {
@@ -32,7 +32,7 @@ pub struct AccObjectSpace {
     list: Pin<Box<Header>>,
 
     /// Whether the collector is running.
-    collecting: Arc<RwLock<()>>,
+    collector_lock: Arc<RwLock<()>>,
 }
 
 // safety: accesses are protected by mutex
@@ -44,9 +44,12 @@ impl ObjectSpace for AccObjectSpace {
     type Header = Header;
 
     fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn) {
-        debug_assert!(Arc::ptr_eq(&header.lock, &self.list.lock));
+        debug_assert!(Arc::ptr_eq(
+            &header.linked_list_lock,
+            &self.list.linked_list_lock
+        ));
         // Should be locked by `create()` already.
-        debug_assert!(self.list.lock.try_lock().is_none());
+        debug_assert!(self.list.linked_list_lock.try_lock().is_none());
         let prev: &Header = &self.list;
         debug_assert!(!collect::is_collecting(prev));
         debug_assert!(header.next.get().is_null());
@@ -65,7 +68,7 @@ impl ObjectSpace for AccObjectSpace {
 
     #[inline]
     fn remove(header: &Self::Header) {
-        let _linked_list_lock = header.lock.lock();
+        let _linked_list_lock = header.linked_list_lock.lock();
         let header: &Header = &header;
         debug_assert!(!collect::is_collecting(header));
         debug_assert!(!header.next.get().is_null());
@@ -82,13 +85,13 @@ impl ObjectSpace for AccObjectSpace {
 
     #[inline]
     fn new_ref_count(&self, tracked: bool) -> Self::RefCount {
-        ThreadedRefCount::new(tracked, self.collecting.clone())
+        ThreadedRefCount::new(tracked, self.collector_lock.clone())
     }
 
     fn default_header(&self) -> Self::Header {
-        let lock = self.list.lock.clone();
+        let linked_list_lock = self.list.linked_list_lock.clone();
         Self::Header {
-            lock,
+            linked_list_lock,
             next: Cell::new(std::ptr::null()),
             prev: Cell::new(std::ptr::null()),
             ccdyn_vptr: CcDummy::ccdyn_vptr(),
@@ -99,19 +102,19 @@ impl ObjectSpace for AccObjectSpace {
 impl Default for AccObjectSpace {
     /// Constructs an empty [`AccObjectSpace`](struct.AccObjectSpace.html).
     fn default() -> Self {
-        let lock = Arc::new(Mutex::new(()));
+        let linked_list_lock = Arc::new(Mutex::new(()));
         let pinned = Box::pin(Header {
             prev: Cell::new(std::ptr::null()),
             next: Cell::new(std::ptr::null()),
             ccdyn_vptr: CcDummy::ccdyn_vptr(),
-            lock,
+            linked_list_lock,
         });
         let header: &Header = &pinned;
         header.prev.set(header);
         header.next.set(header);
         Self {
             list: pinned,
-            collecting: Default::default(),
+            collector_lock: Default::default(),
         }
     }
 }
@@ -119,7 +122,7 @@ impl Default for AccObjectSpace {
 impl AccObjectSpace {
     /// Count objects tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     pub fn count_tracked(&self) -> usize {
-        let _linked_list_lock = self.list.lock.lock();
+        let _linked_list_lock = self.list.linked_list_lock.lock();
         let list: &Header = &self.list;
         let mut count = 0;
         collect::visit_list(list, |_| count += 1);
@@ -129,13 +132,18 @@ impl AccObjectSpace {
     /// Collect cyclic garbage tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     /// Return the number of objects collected.
     pub fn collect_cycles(&self) -> usize {
-        // Block (and wait for) deref.
-        let ref_lock = self.collecting.write();
-        // Block linked list changes.
-        let linked_list_lock = self.list.lock.lock();
-        debug::log(|| ("AccObjectSpace", "start collect_cycles with lock"));
+        // Wait for complex operations (drop). Block operations (drop, deref).
+        let collector_lock = self.collector_lock.write();
+        // Block linked list changes (create, remove).
+        let linked_list_lock = self.list.linked_list_lock.lock();
+        debug::log(|| {
+            (
+                "AccObjectSpace",
+                "start collect_cycles with linked_list_lock",
+            )
+        });
         let list: &Header = &self.list;
-        let result = collect::collect_list(list, (linked_list_lock, ref_lock));
+        let result = collect::collect_list(list, (linked_list_lock, collector_lock));
         debug::log(|| ("AccObjectSpace", "end collect_cycles"));
         result
     }
@@ -150,7 +158,7 @@ impl AccObjectSpace {
     /// [`AccObjectSpace`](struct.AccObjectSpace.html), the cyclic collector
     /// will not be able to collect cycles.
     pub fn create<T: Trace>(&self, value: T) -> Acc<T> {
-        let _linked_list_lock = self.list.lock.lock();
+        let _linked_list_lock = self.list.linked_list_lock.lock();
         Acc::new_in_space(value, self)
     }
 }
