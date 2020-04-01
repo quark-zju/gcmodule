@@ -4,13 +4,15 @@ use crate::cc::CcDyn;
 use crate::collect;
 use crate::collect::Linked;
 use crate::collect::ObjectSpace;
+use crate::debug;
+use crate::ref_count::ThreadedRefCount;
 use crate::Trace;
 use parking_lot::Mutex;
+use parking_lot::RwLock;
 use std::cell::Cell;
 use std::mem;
 use std::ops::Deref;
 use std::pin::Pin;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 #[repr(C)]
@@ -27,6 +29,9 @@ pub struct Header {
 pub struct AccObjectSpace {
     /// Linked list to the tracked objects.
     list: Pin<Box<Header>>,
+
+    /// Whether the collector is running.
+    collecting: Arc<RwLock<()>>,
 }
 
 // safety: accesses are protected by mutex
@@ -34,14 +39,16 @@ unsafe impl Send for AccObjectSpace {}
 unsafe impl Sync for AccObjectSpace {}
 
 impl ObjectSpace for AccObjectSpace {
-    type RefCount = AtomicUsize;
+    type RefCount = ThreadedRefCount;
     type Header = Header;
 
     fn insert(&self, header: &Self::Header, value: &dyn CcDyn) {
         debug_assert!(Arc::ptr_eq(&header.lock, &self.list.lock));
-        let _locked = self.list.lock.lock();
+        // Should be locked by `create()` already.
+        debug_assert!(self.list.lock.try_lock().is_none());
         let header: &Header = &header;
         let prev: &Header = &self.list;
+        debug_assert!(!collect::is_collecting(prev));
         debug_assert!(header.next.get().is_null());
         let next = prev.next.get();
         header.prev.set(prev.deref());
@@ -58,8 +65,9 @@ impl ObjectSpace for AccObjectSpace {
 
     #[inline]
     fn remove(header: &Self::Header) {
-        let _locked = header.lock.lock();
+        let _linked_list_lock = header.lock.lock();
         let header: &Header = &header;
+        debug_assert!(!collect::is_collecting(header));
         debug_assert!(!header.next.get().is_null());
         debug_assert!(!header.prev.get().is_null());
         let next = header.next.get();
@@ -70,6 +78,11 @@ impl ObjectSpace for AccObjectSpace {
             (*next).prev.set(prev);
         }
         header.next.set(std::ptr::null_mut());
+    }
+
+    #[inline]
+    fn new_ref_count(&self, tracked: bool) -> Self::RefCount {
+        ThreadedRefCount::new(tracked, self.collecting.clone())
     }
 
     fn default_header(&self) -> Self::Header {
@@ -96,14 +109,17 @@ impl Default for AccObjectSpace {
         let header: &Header = &pinned;
         header.prev.set(header);
         header.next.set(header);
-        Self { list: pinned }
+        Self {
+            list: pinned,
+            collecting: Default::default(),
+        }
     }
 }
 
 impl AccObjectSpace {
     /// Count objects tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     pub fn count_tracked(&self) -> usize {
-        let _locked = self.list.lock.lock();
+        let _linked_list_lock = self.list.lock.lock();
         let list: &Header = &self.list;
         let mut count = 0;
         collect::visit_list(list, |_| count += 1);
@@ -113,9 +129,15 @@ impl AccObjectSpace {
     /// Collect cyclic garbage tracked by this [`ObjectSpace`](struct.ObjectSpace.html).
     /// Return the number of objects collected.
     pub fn collect_cycles(&self) -> usize {
-        let locked = self.list.lock.lock();
+        // Block (and wait for) deref.
+        let ref_lock = self.collecting.write();
+        // Block linked list changes.
+        let linked_list_lock = self.list.lock.lock();
+        debug::log(|| ("AccObjectSpace", "start collect_cycles with lock"));
         let list: &Header = &self.list;
-        collect::collect_list(list, locked)
+        let result = collect::collect_list(list, linked_list_lock, ref_lock);
+        debug::log(|| ("AccObjectSpace", "end collect_cycles"));
+        result
     }
 
     /// Constructs a new [`Acc<T>`](struct.Acc.html) in this
@@ -128,7 +150,7 @@ impl AccObjectSpace {
     /// [`AccObjectSpace`](struct.AccObjectSpace.html), the cyclic collector
     /// will not be able to collect cycles.
     pub fn create<T: Trace>(&self, value: T) -> Acc<T> {
-        // Lock will be taken by ObjectSpace::insert.
+        let _linked_list_lock = self.list.lock.lock();
         Acc::new_in_space(value, self)
     }
 }

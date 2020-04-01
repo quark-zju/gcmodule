@@ -148,7 +148,7 @@ impl CcObjectSpace {
     /// Return the number of objects collected.
     pub fn collect_cycles(&self) -> usize {
         let list: &GcHeader = &self.list.borrow();
-        collect_list(list, ())
+        collect_list(list, (), ())
     }
 
     /// Constructs a new [`Cc<T>`](struct.Cc.html) in this
@@ -257,10 +257,14 @@ pub(crate) fn new_gc_list() -> Pin<Box<GcHeader>> {
 }
 
 /// Scan the specified linked list. Collect cycles.
-pub(crate) fn collect_list<L: Linked, K>(list: &L, lock: K) -> usize {
+pub(crate) fn collect_list<L: Linked, K1, K2>(
+    list: &L,
+    linked_list_lock: K1,
+    ref_count_lock: K2,
+) -> usize {
     update_refs(list);
     subtract_refs(list);
-    release_unreachable(list, lock)
+    release_unreachable(list, linked_list_lock, ref_count_lock)
 }
 
 /// Visit the linked list.
@@ -283,8 +287,19 @@ const PREV_SHIFT: u32 = 1;
 fn update_refs<L: Linked>(list: &L) {
     visit_list(list, |header| {
         let ref_count = header.value().gc_ref_count();
-        let shifted = (ref_count << PREV_SHIFT) | PREV_MASK_COLLECTING;
-        header.set_prev(shifted as _);
+        // It's possible that the ref_count becomes 0 in a multi-thread context:
+        //  thread 1> drop()
+        //  thread 1> drop() -> dec_ref()
+        //  thread 2> collect_cycles()        # take linked list lock
+        //  thread 1> drop() -> drop_ccbox()  # blocked by the linked list lock
+        //  thread 2> observe that ref_count is 0, but T is not dropped yet.
+        // In such case just ignore the object by not marking it as COLLECTING.
+        if ref_count > 0 {
+            let shifted = (ref_count << PREV_SHIFT) | PREV_MASK_COLLECTING;
+            header.set_prev(shifted as _);
+        } else {
+            debug_assert!(header.prev() as usize & PREV_MASK_COLLECTING == 0);
+        }
     });
 }
 
@@ -333,7 +348,11 @@ fn mark_reachable<L: Linked>(list: &L) {
 }
 
 /// Release unreachable objects in the linked list.
-fn release_unreachable<L: Linked, K>(list: &L, lock: K) -> usize {
+fn release_unreachable<L: Linked, K1, K2>(
+    list: &L,
+    linked_list_lock: K1,
+    ref_count_lock: K2,
+) -> usize {
     // Mark reachable objects. For example, A refers B. A's gc_ref_count
     // is 1 while B's gc_ref_count is 0. In this case B should be revived
     // by A's non-zero gc_ref_count.
@@ -365,6 +384,10 @@ fn release_unreachable<L: Linked, K>(list: &L, lock: K) -> usize {
     // Restore "prev" so deleting nodes from the linked list can work.
     restore_prev(list);
 
+    // Drop the ref count lock so reference counts can be changed.
+    // This is needed because gc_drop_t might change the ref counts.
+    drop(ref_count_lock);
+
     // Drop `T` without releasing memory of `CcBox<T>`. This might trigger some
     // recursive drops of other `Cc<T>`. `CcBox<T>` need to stay alive so
     // `Cc<T>::drop` can read the ref count metadata.
@@ -385,10 +408,10 @@ fn release_unreachable<L: Linked, K>(list: &L, lock: K) -> usize {
         );
     }
 
-    // Drop lock to prevent deadlock.
+    // Drop the linked list lock.
     // This is needed because dropping `to_drop` will change the linked list
     // by ObjectSpace::remove, which might need to lock.
-    drop(lock);
+    drop(linked_list_lock);
 
     count
 }
@@ -407,7 +430,7 @@ fn is_unreachable<L: Linked>(header: &L) -> bool {
     is_collecting(header) && (prev >> PREV_SHIFT) == 0
 }
 
-fn is_collecting<L: Linked>(header: &L) -> bool {
+pub(crate) fn is_collecting<L: Linked>(header: &L) -> bool {
     let prev = header.prev() as *const L as usize;
     (prev & PREV_MASK_COLLECTING) != 0
 }

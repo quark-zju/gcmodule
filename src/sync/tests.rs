@@ -13,19 +13,21 @@ fn test_cross_thread_cycle(n: usize) {
     let space = Arc::new(AccObjectSpace::default());
     assert_eq!(space.count_tracked(), 0);
 
-    let spawn_thread = |name| {
+    let spawn_thread = |thread_id| {
         let value = Mutex::new(Vec::new());
         let space = space.clone();
         let list = list.clone();
         spawn(move || {
-            debug::NEXT_DEBUG_NAME.with(|n| n.set(name));
+            debug::NEXT_DEBUG_NAME.with(|n| n.set(thread_id));
             let this: List = space.create(value);
             let mut list = list.lock().unwrap();
             for other in list.iter_mut() {
                 let cloned_other = other.clone();
                 let cloned_this = this.clone();
-                this.lock().unwrap().push(Box::new(cloned_other));
-                other.lock().unwrap().push(Box::new(cloned_this));
+                let this_ref = this.read();
+                this_ref.lock().unwrap().push(Box::new(cloned_other));
+                let other_ref = other.read();
+                other_ref.lock().unwrap().push(Box::new(cloned_this));
             }
             list.push(this);
         })
@@ -84,9 +86,10 @@ fn test_racy_threads(
                     {
                         debug::NEXT_DEBUG_NAME.with(|n| n.set((i + 1) * 1000 + k));
                         let value = Mutex::new(Vec::new());
-                        let acc: List = Acc::new_in_space(value, &space);
+                        let acc: List = space.create(value);
                         {
-                            let mut locked = acc.lock().unwrap();
+                            let acc_ref = acc.read();
+                            let mut locked = acc_ref.lock().unwrap();
                             while let Ok(received) = rx.try_recv() {
                                 locked.push(received);
                             }
@@ -123,7 +126,7 @@ fn test_racy_threads_drops() {
 
 #[test]
 fn test_racy_threads_collects() {
-    test_racy_threads(8, 100, 0xff, 0xff);
+    test_racy_threads(32, 10, 0xffffffff, 0xffffffff);
 }
 
 #[test]

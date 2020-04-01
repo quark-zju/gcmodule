@@ -47,6 +47,8 @@ pub(crate) fn log<S1: ToString, S2: ToString>(func: impl Fn() -> (S1, S2)) {
         })
     } else if VERBOSE.with(|verbose| *verbose) {
         let (name, message) = func();
+        let t = std::thread::current().id();
+        let name = format!("{:?}-{}", t, name.to_string());
         eprintln!("debug::log {} {}", name.to_string(), message.to_string());
     }
 }

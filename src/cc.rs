@@ -185,6 +185,7 @@ impl<T: Trace, O: ObjectSpace> AbstractCc<T, O> {
         } else {
             debug::log(|| (result.debug_name(), "new (CcBox)"));
         }
+        debug_assert_eq!(result.ref_count(), 1);
         result
     }
 
@@ -204,7 +205,7 @@ impl<T: Trace, O: ObjectSpace> AbstractCc<T, O> {
             // Cc<dyn Trace> has 2 usize values: The first one is the same
             // as Cc<T>. The second one is the vtable. The vtable pointer
             // is the same as the second pointer of `&dyn Trace`.
-            let mut fat_ptr: [usize; 2] = mem::transmute(self.deref() as &dyn Trace);
+            let mut fat_ptr: [usize; 2] = mem::transmute(self.inner().deref() as &dyn Trace);
             let self_ptr: usize = mem::transmute(self);
             fat_ptr[0] = self_ptr;
             mem::transmute(fat_ptr)
@@ -285,7 +286,7 @@ impl<T: ?Sized, O: ObjectSpace> CcBox<T, O> {
         }
     }
 
-    fn trace_t(&self, tracer: &mut Tracer) {
+    pub(crate) fn trace_t(&self, tracer: &mut Tracer) {
         if !self.is_tracked() {
             return;
         }
@@ -340,13 +341,17 @@ impl<T: ?Sized, O: ObjectSpace> AbstractCc<T, O> {
 impl<T, O: ObjectSpace> Clone for AbstractCc<T, O> {
     #[inline]
     fn clone(&self) -> Self {
+        // In theory self.inner().ref_count.locked() is needed.
+        // Practically this is an atomic operation that cannot be split so locking
+        // becomes optional.
+        // let _locked = self.inner().ref_count.locked();
         self.inc_ref();
         debug::log(|| (self.debug_name(), format!("clone ({})", self.ref_count())));
         Self(self.0)
     }
 }
 
-impl<T: ?Sized, O: ObjectSpace> Deref for AbstractCc<T, O> {
+impl<T: ?Sized> Deref for Cc<T> {
     type Target = T;
 
     #[inline]
@@ -379,16 +384,20 @@ fn drop_ccbox<T: ?Sized, O: ObjectSpace>(cc_box: &mut CcBox<T, O>) {
     // safety: See Cc::new. The pointer was created by Box::into_raw.
     let cc_box: Box<CcBox<T, O>> = unsafe { Box::from_raw(cc_box) };
     let is_tracked = cc_box.is_tracked();
-    // Drop T if it hasn't been dropped yet.
-    cc_box.drop_t();
     if is_tracked {
         // The real object is CcBoxWithGcHeader. Drop that instead.
-        debug::log(|| (cc_box.debug_name(), "drop (CcBoxWithGcHeader)"));
         // safety: See Cc::new for CcBoxWithGcHeader.
         let gc_box: Box<AbstractCcBoxWithGcHeader<T, O>> = unsafe { cast_box(cc_box) };
         O::remove(&gc_box.header);
+        // Drop T if it hasn't been dropped yet.
+        // This needs to be after O::remove so the collector won't have a
+        // chance to read dropped content.
+        gc_box.cc_box.drop_t();
+        debug::log(|| (gc_box.cc_box.debug_name(), "drop (CcBoxWithGcHeader)"));
         drop(gc_box);
     } else {
+        // Drop T if it hasn't been dropped yet.
+        cc_box.drop_t();
         debug::log(|| (cc_box.debug_name(), "drop (CcBox)"));
         drop(cc_box);
     }
@@ -396,12 +405,16 @@ fn drop_ccbox<T: ?Sized, O: ObjectSpace>(cc_box: &mut CcBox<T, O>) {
 
 impl<T: ?Sized, O: ObjectSpace> Drop for AbstractCc<T, O> {
     fn drop(&mut self) {
+        let ptr: *mut CcBox<T, O> = self.0.as_ptr();
+        // Block threaded collector. This is needed because "drop()" is a
+        // complex operation. The whole operation needs to be "atomic".
+        let _locked = self.inner().ref_count.locked();
         let old_ref_count = self.dec_ref();
         debug::log(|| (self.debug_name(), format!("drop ({})", self.ref_count())));
         debug_assert!(old_ref_count >= 1);
         if old_ref_count == 1 {
             // safety: CcBox lifetime maintained by ref count.
-            drop_ccbox(unsafe { self.0.as_mut() });
+            drop_ccbox(unsafe { &mut *ptr });
         }
     }
 }
@@ -417,7 +430,7 @@ impl<T: Trace, O: ObjectSpace> CcDyn for CcBox<T, O> {
     }
 
     fn gc_clone(&self) -> Box<dyn GcClone> {
-        self.inc_ref();
+        self.ref_count.inc_ref();
         debug::log(|| {
             let msg = format!("gc_clone ({})", self.ref_count());
             (self.debug_name(), msg)
@@ -441,7 +454,7 @@ impl<T: Trace, O: ObjectSpace> GcClone for AbstractCc<T, O> {
     }
 }
 
-impl<T: Trace, O: ObjectSpace> Trace for AbstractCc<T, O> {
+impl<T: Trace> Trace for Cc<T> {
     fn trace(&self, tracer: &mut Tracer) {
         self.inner().trace_t(tracer)
     }
@@ -456,7 +469,7 @@ impl<T: Trace, O: ObjectSpace> Trace for AbstractCc<T, O> {
     }
 }
 
-impl<O: ObjectSpace> Trace for AbstractCc<dyn Trace, O> {
+impl Trace for Cc<dyn Trace> {
     fn trace(&self, tracer: &mut Tracer) {
         self.inner().trace_t(tracer)
     }
@@ -472,20 +485,20 @@ impl<O: ObjectSpace> Trace for AbstractCc<dyn Trace, O> {
     }
 }
 
-impl<O: ObjectSpace> AbstractCc<dyn Trace, O> {
+impl Cc<dyn Trace> {
     /// Attempt to downcast to the specified type.
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         self.deref().as_any().and_then(|any| any.downcast_ref())
     }
 
     /// Attempt to downcast to the specified `Cc<T>` type.
-    pub fn downcast<T: Trace>(self) -> Result<AbstractCc<T, O>, AbstractCc<dyn Trace, O>> {
+    pub fn downcast<T: Trace>(self) -> Result<Cc<T>, Cc<dyn Trace>> {
         if self.downcast_ref::<T>().is_some() {
             // safety: type T is checked above. The first pointer of the fat
             // pointer (Cc<dyn Trace>) matches the raw CcBox pointer.
-            let fat_ptr: (*mut CcBox<T, O>, *mut ()) = unsafe { mem::transmute(self) };
+            let fat_ptr: (*mut CcBox<T, CcObjectSpace>, *mut ()) = unsafe { mem::transmute(self) };
             let non_null = unsafe { NonNull::new_unchecked(fat_ptr.0) };
-            let result: AbstractCc<T, O> = AbstractCc(non_null);
+            let result: Cc<T> = AbstractCc(non_null);
             Ok(result)
         } else {
             Err(self)

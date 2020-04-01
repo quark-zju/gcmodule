@@ -213,7 +213,7 @@ mod collect;
 mod debug;
 mod ref_count;
 #[cfg(feature = "sync")]
-//mod sync;
+mod sync;
 #[cfg(test)]
 mod tests;
 #[cfg(any(test, feature = "testutil"))]

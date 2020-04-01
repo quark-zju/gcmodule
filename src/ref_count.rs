@@ -1,8 +1,10 @@
+use parking_lot::lock_api::RwLockReadGuard;
+use parking_lot::RawRwLock;
+use parking_lot::RwLock;
 use std::cell::Cell;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed};
 use std::sync::Arc;
-use std::sync::RwLock;
 
 /// Whether a `GcHeader` exists before the `CcBox<T>`.
 pub(crate) const REF_COUNT_MASK_TRACKED: usize = 0b1;
@@ -20,6 +22,11 @@ pub trait RefCount: 'static {
     fn dec_ref(&self) -> usize;
     fn ref_count(&self) -> usize;
     fn set_dropped(&self) -> bool;
+
+    #[inline]
+    fn locked(&self) -> Option<RwLockReadGuard<'_, RawRwLock, ()>> {
+        None
+    }
 }
 
 impl RefCount for Cell<usize> {
@@ -62,7 +69,7 @@ impl RefCount for Cell<usize> {
 
 pub struct ThreadedRefCount {
     ref_count: AtomicUsize,
-    collecting: Arc<RwLock<()>>,
+    pub(crate) collecting: Arc<RwLock<()>>,
 }
 
 impl ThreadedRefCount {
@@ -106,8 +113,11 @@ impl RefCount for ThreadedRefCount {
 
     #[inline]
     fn dec_ref(&self) -> usize {
-        // Block when GC is running. But do not block other dec_refs.
-        let _blocked = self.collecting.read().unwrap();
         self.ref_count.fetch_sub(1 << REF_COUNT_SHIFT, AcqRel) >> REF_COUNT_SHIFT
+    }
+
+    #[inline]
+    fn locked(&self) -> Option<RwLockReadGuard<'_, RawRwLock, ()>> {
+        Some(self.collecting.read_recursive())
     }
 }
