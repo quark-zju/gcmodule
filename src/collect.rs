@@ -20,7 +20,10 @@ use std::ops::Deref;
 use std::pin::Pin;
 
 /// A collection of [`Cc`](struct.Cc.html)s that might form cycles with one
-/// another.
+/// another. This allows more explicit control about what to collect.
+///
+/// Use [`CcObjectSpace::create`](struct.CcObjectSpace.html#method.create) to
+/// create new objects within the space.
 ///
 /// # Example
 ///
@@ -42,8 +45,6 @@ use std::pin::Pin;
 /// assert_eq!(space.count_tracked(), 2);
 /// assert_eq!(space.collect_cycles(), 2);
 /// ```
-///
-/// Use [`Cc::new_in_space`](struct.Cc.html#method.new_in_space).
 pub struct CcObjectSpace {
     /// Linked list to the tracked objects.
     pub(crate) list: RefCell<Pin<Box<GcHeader>>>,
