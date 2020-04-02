@@ -428,8 +428,10 @@ mod sync {
 
     impl<T: Trace> Trace for sync::Mutex<T> {
         fn trace(&self, tracer: &mut Tracer) {
-            let x = self.lock().unwrap();
-            x.trace(tracer);
+            // For the same reason as RefCell
+            if let Ok(x) = self.lock() {
+                x.trace(tracer);
+            }
         }
 
         #[inline]
@@ -444,8 +446,11 @@ mod sync {
 
     impl<T: Trace> Trace for sync::RwLock<T> {
         fn trace(&self, tracer: &mut Tracer) {
-            let x = self.read().unwrap();
-            x.trace(tracer);
+            // For the same reason as RefCell
+            // The reson why use `.write()` instead of `.read()` is that read access is also a outstanding reference
+            if let Ok(x) = self.write() {
+                x.trace(tracer);
+            }
         }
 
         #[inline]
