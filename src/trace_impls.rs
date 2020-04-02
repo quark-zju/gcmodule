@@ -424,12 +424,27 @@ mod sync {
     use super::*;
     use std::sync;
 
+    // See comment in Mutex for why this is acyclic.
     trace_acyclic!(<T> sync::Arc<T>);
 
     impl<T: Trace> Trace for sync::Mutex<T> {
         fn trace(&self, tracer: &mut Tracer) {
-            let x = self.lock().unwrap();
-            x.trace(tracer);
+            // For single-thread collector (ObjectSpace):
+            // Locking is optional. See RefCell.
+            //
+            // For multi-thread collector (ThreadedObjectSpace):
+            // `ThreadedCcRef` is expected to be the only way to access a `T`
+            // stored in `ThreadedCc<T>`. `ThreadedCcRef` takes a lock so
+            // collector does not run. When the collector runs, `ThreadedCcRef`
+            // are dropped so locks are released.
+            // A special is when `T` is `Arc<Mutex<M>>`. It allows mutating `M`
+            // without going through `ThreadedCcRef`. This is handled by marking
+            // `Arc` as acyclic. The collector only cares about `trace`, and
+            // `trace` result for an `Arc` cannot be changed by another thread,
+            // even if `M` is mutable.
+            if let Ok(x) = self.try_lock() {
+                x.trace(tracer);
+            }
         }
 
         #[inline]
@@ -444,8 +459,13 @@ mod sync {
 
     impl<T: Trace> Trace for sync::RwLock<T> {
         fn trace(&self, tracer: &mut Tracer) {
-            let x = self.read().unwrap();
-            x.trace(tracer);
+            // See Mutex for why locking is optional.
+            //
+            // If read or write locks are already taken, that indicates
+            // outstanding references that keeps the objects alive.
+            if let Ok(x) = self.try_write() {
+                x.trace(tracer);
+            }
         }
 
         #[inline]
