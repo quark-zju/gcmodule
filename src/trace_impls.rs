@@ -393,10 +393,38 @@ mod process {
 }
 
 mod rc {
+    use super::*;
     use std::rc;
 
-    trace_acyclic!(<T> rc::Rc<T>);
-    trace_acyclic!(<T> rc::Weak<T>);
+    impl<T: Trace> Trace for rc::Rc<T> {
+        fn trace(&self, tracer: &mut Tracer) {
+            (**self).trace(tracer);
+        }
+
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
+    }
+
+    impl<T: Trace> Trace for rc::Weak<T> {
+        fn trace(&self, tracer: &mut Tracer) {
+            if let Some(ref t) = self.upgrade() {
+                t.trace(tracer);
+            }
+        }
+
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
+    }
 }
 
 mod result {
@@ -424,7 +452,35 @@ mod sync {
     use super::*;
     use std::sync;
 
-    trace_acyclic!(<T> sync::Arc<T>);
+    impl<T: Trace> Trace for sync::Arc<T> {
+        fn trace(&self, tracer: &mut Tracer) {
+            (**self).trace(tracer);
+        }
+
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
+    }
+
+    impl<T: Trace> Trace for sync::Weak<T> {
+        fn trace(&self, tracer: &mut Tracer) {
+            if let Some(ref t) = self.upgrade() {
+                t.trace(tracer);
+            }
+        }
+
+        fn is_type_tracked() -> bool {
+            T::is_type_tracked()
+        }
+
+        fn as_any(&self) -> Option<&dyn Any> {
+            Some(self)
+        }
+    }
 
     impl<T: Trace> Trace for sync::Mutex<T> {
         fn trace(&self, tracer: &mut Tracer) {
