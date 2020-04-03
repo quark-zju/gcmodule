@@ -428,8 +428,20 @@ mod sync {
 
     impl<T: Trace> Trace for sync::Mutex<T> {
         fn trace(&self, tracer: &mut Tracer) {
-            let x = self.lock().unwrap();
-            x.trace(tracer);
+            // We assume that `T` will not be modified while the collector is running.
+            // This is done by the `ThreadedCcRef` type.
+            // `ThreadedCcRef` is expected to be the only way to
+            // access a `T` stored in `ThreadedCc<T>` and `ThreadedCcRef`
+            // takes a lock so collector does not run.
+
+            // There are some special cases, though.
+            // For example, `ThreadedCc<Arc<Mutex<T>>` allows mutating the `T`
+            // without going through `ThreadedCcRef`.
+            // How do we deal with that?
+            // Well, `Arc` is considered acyclic.
+            // Therefore from the collector's point of view,
+            // even if `T` is mutated by other threads, the dependency graph does not change.
+            self.try_lock().expect("bug: Mutex was locked bypassing ThreadedCcRef").trace(tracer);
         }
 
         #[inline]
@@ -444,8 +456,8 @@ mod sync {
 
     impl<T: Trace> Trace for sync::RwLock<T> {
         fn trace(&self, tracer: &mut Tracer) {
-            let x = self.read().unwrap();
-            x.trace(tracer);
+            // For the same reason as Mutex
+            self.try_write().expect("bug: RwLock was locked bypassing ThreadedCcRef").trace(tracer);
         }
 
         #[inline]
