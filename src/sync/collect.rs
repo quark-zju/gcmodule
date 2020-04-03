@@ -157,7 +157,21 @@ impl ThreadedObjectSpace {
     /// [`ThreadedCc<T>`](type.ThreadedCc.html) created by a different
     /// [`ThreadedObjectSpace`](struct.ThreadedObjectSpace.html).
     /// Otherwise the collector might fail to collect cycles.
-    pub fn create<T: Trace>(&self, value: T) -> ThreadedCc<T> {
+    ///
+    /// The type `T` needs to be `Send + Sync`. This is because the
+    /// [`ThreadedObjectSpace`](struct.ThreadedObjectSpace.html) is
+    /// `Send` and `Sync`. The collector can run in a different
+    /// thread to access `ThreadedCc<T>`, which needs to be
+    /// `Send + Sync` to be safely accessed by the collector.
+    ///
+    /// ```compile_fail
+    /// use gcmodule::{ThreadedObjectSpace, ThreadedCc, Cc};
+    /// let cc = Cc::new(5);
+    /// let space = ThreadedObjectSpace::default();
+    /// # Does not compile since Cc is not Send.
+    /// let tcc: ThreadedCc<Cc<_>> = space.create(cc);
+    /// ```
+    pub fn create<T: Trace + Send + Sync>(&self, value: T) -> ThreadedCc<T> {
         let _linked_list_lock = self.list.linked_list_lock.lock();
         ThreadedCc::new_in_space(value, self)
     }
