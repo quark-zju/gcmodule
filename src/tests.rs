@@ -102,6 +102,10 @@ fn test_simple_non_trait_cycles() {
         debug::NEXT_DEBUG_NAME.with(|n| n.set(1));
         let t2: T = T(Cc::new(RefCell::new(Some(Box::new(t1.clone())))));
         (*t1.0.borrow_mut()) = Some(Box::new(t2.clone()));
+
+        // The collector runs if RefCell is borrowed.
+        let _borrowed = t1.0.borrow_mut();
+        assert_eq!(collect::collect_thread_cycles(), 0);
     }
     assert_eq!(collect::collect_thread_cycles(), 2);
 }
