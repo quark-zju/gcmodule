@@ -86,59 +86,14 @@ mod tuples {
 mod boxed {
     use super::*;
 
-    impl<T: Trace> Trace for Box<T> {
+    impl<T: Trace + ?Sized> Trace for Box<T> {
         fn trace(&self, tracer: &mut Tracer) {
             self.as_ref().trace(tracer);
         }
 
         #[inline]
         fn is_type_tracked() -> bool {
-            T::is_type_tracked()
-        }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
-    }
-
-    impl Trace for Box<dyn Trace> {
-        fn trace(&self, tracer: &mut Tracer) {
-            self.as_ref().trace(tracer);
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            // Trait objects can have complex non-atomic structure.
-            true
-        }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
-    }
-
-    impl Trace for Box<dyn Trace + Send> {
-        fn trace(&self, tracer: &mut Tracer) {
-            self.as_ref().trace(tracer);
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
-            true
-        }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
-    }
-
-    impl Trace for Box<dyn Trace + Send + Sync> {
-        fn trace(&self, tracer: &mut Tracer) {
-            self.as_ref().trace(tracer);
-        }
-
-        #[inline]
-        fn is_type_tracked() -> bool {
+            // T can be `dyn _` which can have complex non-atomic structure.
             true
         }
 
