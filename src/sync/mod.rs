@@ -79,8 +79,6 @@ impl<T: Trace> Trace for ThreadedCc<T> {
     fn is_type_tracked() -> bool {
         T::is_type_tracked()
     }
-
-    // No as_any. This enforces locking via ThreadedCcRef.
 }
 
 impl Trace for ThreadedCc<dyn Trace> {
@@ -93,8 +91,6 @@ impl Trace for ThreadedCc<dyn Trace> {
         // Trait objects can be anything.
         true
     }
-
-    // No as_any. This enforces locking via ThreadedCcRef.
 }
 
 impl Trace for ThreadedCc<dyn Trace + Send> {
@@ -107,8 +103,6 @@ impl Trace for ThreadedCc<dyn Trace + Send> {
         // Trait objects can be anything.
         true
     }
-
-    // No as_any. This enforces locking via ThreadedCcRef.
 }
 
 impl Trace for ThreadedCc<dyn Trace + Send + Sync> {
@@ -121,6 +115,4 @@ impl Trace for ThreadedCc<dyn Trace + Send + Sync> {
         // Trait objects can be anything.
         true
     }
-
-    // No as_any. This enforces locking via ThreadedCcRef.
 }
