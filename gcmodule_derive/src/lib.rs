@@ -70,9 +70,6 @@ pub fn gcmodule_trace_derive(input: TokenStream) -> TokenStream {
                     #( #is_type_tracked_fn_body )*
                     false
                 }
-                fn as_any(&self) -> Option<&dyn std::any::Any> {
-                    Some(self)
-                }
             }
         };
     };

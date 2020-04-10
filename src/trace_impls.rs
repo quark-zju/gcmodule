@@ -1,5 +1,4 @@
 use crate::trace::{Trace, Tracer};
-use std::any::Any;
 
 /// Mark types as acyclic. Opt-out the cycle collector.
 ///
@@ -25,7 +24,6 @@ macro_rules! trace_acyclic {
         impl<$( $g: 'static ),*> $crate::Trace for $($t)* {
             #[inline]
             fn is_type_tracked() -> bool where Self: Sized { false }
-            fn as_any(&self) -> Option<&dyn std::any::Any> { Some(self) }
         }
     };
     ( $( $t: ty ),* ) => {
@@ -64,7 +62,6 @@ macro_rules! trace_fields {
                     $( $( if $tp::is_type_tracked() { return true } )? )*
                     false
                 }
-                fn as_any(&self) -> Option<&dyn std::any::Any> { Some(self) }
             }
         )*
     };
@@ -95,10 +92,6 @@ mod boxed {
         fn is_type_tracked() -> bool {
             T::is_type_tracked()
         }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
     }
 
     impl Trace for Box<dyn Trace> {
@@ -111,10 +104,6 @@ mod boxed {
             // Trait objects can have complex non-atomic structure.
             true
         }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
     }
 
     impl Trace for Box<dyn Trace + Send> {
@@ -126,10 +115,6 @@ mod boxed {
         fn is_type_tracked() -> bool {
             true
         }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
     }
 
     impl Trace for Box<dyn Trace + Send + Sync> {
@@ -140,10 +125,6 @@ mod boxed {
         #[inline]
         fn is_type_tracked() -> bool {
             true
-        }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
         }
     }
 }
@@ -160,10 +141,6 @@ mod cell {
         #[inline]
         fn is_type_tracked() -> bool {
             T::is_type_tracked()
-        }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
         }
     }
 
@@ -182,10 +159,6 @@ mod cell {
         #[inline]
         fn is_type_tracked() -> bool {
             T::is_type_tracked()
-        }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
         }
     }
 }
@@ -207,10 +180,6 @@ mod collections {
         fn is_type_tracked() -> bool {
             K::is_type_tracked() && V::is_type_tracked()
         }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
     }
 
     impl<K: Eq + hash::Hash + Trace, V: Trace> Trace for collections::HashMap<K, V> {
@@ -225,10 +194,6 @@ mod collections {
         fn is_type_tracked() -> bool {
             K::is_type_tracked() && V::is_type_tracked()
         }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
     }
 
     impl<T: Trace> Trace for collections::LinkedList<T> {
@@ -242,10 +207,6 @@ mod collections {
         fn is_type_tracked() -> bool {
             T::is_type_tracked()
         }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
     }
 
     impl<T: Trace> Trace for collections::VecDeque<T> {
@@ -258,10 +219,6 @@ mod collections {
         #[inline]
         fn is_type_tracked() -> bool {
             T::is_type_tracked()
-        }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
         }
     }
 }
@@ -278,10 +235,6 @@ mod vec {
         #[inline]
         fn is_type_tracked() -> bool {
             T::is_type_tracked()
-        }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
         }
     }
 }
@@ -364,10 +317,6 @@ mod option {
         fn is_type_tracked() -> bool {
             T::is_type_tracked()
         }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
     }
 }
 
@@ -413,10 +362,6 @@ mod result {
         fn is_type_tracked() -> bool {
             T::is_type_tracked() && U::is_type_tracked()
         }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
     }
 }
 
@@ -451,10 +396,6 @@ mod sync {
         fn is_type_tracked() -> bool {
             T::is_type_tracked()
         }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
-        }
     }
 
     impl<T: Trace> Trace for sync::RwLock<T> {
@@ -471,10 +412,6 @@ mod sync {
         #[inline]
         fn is_type_tracked() -> bool {
             T::is_type_tracked()
-        }
-
-        fn as_any(&self) -> Option<&dyn Any> {
-            Some(self)
         }
     }
 }

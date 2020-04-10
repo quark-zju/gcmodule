@@ -5,7 +5,6 @@ use crate::debug;
 use crate::ref_count::RefCount;
 use crate::trace::Trace;
 use crate::trace::Tracer;
-use std::any::Any;
 use std::cell::UnsafeCell;
 use std::mem;
 use std::mem::ManuallyDrop;
@@ -462,10 +461,6 @@ impl<T: Trace> Trace for Cc<T> {
     fn is_type_tracked() -> bool {
         T::is_type_tracked()
     }
-
-    fn as_any(&self) -> Option<&dyn Any> {
-        Trace::as_any(self.deref())
-    }
 }
 
 impl Trace for Cc<dyn Trace> {
@@ -477,31 +472,6 @@ impl Trace for Cc<dyn Trace> {
     fn is_type_tracked() -> bool {
         // Trait objects can be anything.
         true
-    }
-
-    fn as_any(&self) -> Option<&dyn Any> {
-        Trace::as_any(self.deref())
-    }
-}
-
-impl Cc<dyn Trace> {
-    /// Attempt to downcast to the specified type.
-    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
-        self.deref().as_any().and_then(|any| any.downcast_ref())
-    }
-
-    /// Attempt to downcast to the specified `Cc<T>` type.
-    pub fn downcast<T: Trace>(self) -> Result<Cc<T>, Cc<dyn Trace>> {
-        if self.downcast_ref::<T>().is_some() {
-            // safety: type T is checked above. The first pointer of the fat
-            // pointer (Cc<dyn Trace>) matches the raw CcBox pointer.
-            let fat_ptr: (*mut RawCcBox<T, ObjectSpace>, *mut ()) = unsafe { mem::transmute(self) };
-            let non_null = unsafe { NonNull::new_unchecked(fat_ptr.0) };
-            let result: Cc<T> = RawCc(non_null);
-            Ok(result)
-        } else {
-            Err(self)
-        }
     }
 }
 
@@ -554,18 +524,6 @@ mod tests {
 
         let v4: &dyn CcDyn = v2.inner().header().value();
         assert_eq!(v4.gc_ref_count(), 2);
-    }
-
-    #[test]
-    fn test_dyn_downcast() {
-        let v: Cc<Vec<u8>> = Cc::new(vec![1u8, 2, 3]);
-        let v: Cc<dyn Trace> = v.into_dyn();
-        let downcasted: &Vec<u8> = v.downcast_ref().unwrap();
-        assert_eq!(downcasted, &vec![1, 2, 3]);
-
-        let v = v.downcast::<usize>().map(|_| panic!()).unwrap_err();
-        let v: Cc<Vec<u8>> = v.downcast().map_err(|_| panic!()).unwrap();
-        assert_eq!(v.deref(), &vec![1, 2, 3]);
     }
 
     #[cfg(feature = "nightly")]

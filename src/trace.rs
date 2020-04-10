@@ -1,5 +1,3 @@
-use std::any::Any;
-
 /// Callback function that serves as the parameter of
 /// [`Trace::trace`](trait.Trace.html#method.trace).
 pub type Tracer<'a> = dyn FnMut(*const ()) + 'a;
@@ -65,13 +63,5 @@ pub trait Trace: 'static {
     {
         // Fallback implementation: Opt-in the collector for correctness.
         return true;
-    }
-
-    /// Provide downcast support.
-    ///
-    /// Types that want downcast support should implement this method like:
-    /// `fn as_any(&self) -> Option<&dyn std::any::Any> { Some(self) }`
-    fn as_any(&self) -> Option<&dyn Any> {
-        None
     }
 }
