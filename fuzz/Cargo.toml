@@ -19,3 +19,5 @@ features = ["testutil"]
 [[bin]]
 name = "graph16"
 path = "fuzz_targets/graph16.rs"
+
+[workspace]
