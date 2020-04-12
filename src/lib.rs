@@ -294,6 +294,7 @@ pub use gcmodule_derive::Trace;
 mod debug {
     use std::cell::Cell;
     thread_local!(pub(crate) static NEXT_DEBUG_NAME: Cell<usize> = Default::default());
+    thread_local!(pub(crate) static GC_DROPPING: Cell<bool> = Cell::new(false));
     pub(crate) fn log<S1: ToString, S2: ToString>(func: impl Fn() -> (S1, S2)) {
         if cfg!(feature = "debug") {
             let (name, message) = func();

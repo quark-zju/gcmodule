@@ -390,6 +390,11 @@ fn release_unreachable<L: Linked, K>(list: &L, lock: K) -> usize {
     drop(lock);
     drop(list);
 
+    #[cfg(feature = "debug")]
+    {
+        crate::debug::GC_DROPPING.with(|d| d.set(true));
+    }
+
     // Drop `T` without releasing memory of `CcBox<T>`. This might trigger some
     // recursive drops of other `Cc<T>`. `CcBox<T>` need to stay alive so
     // `Cc<T>::drop` can read the ref count metadata.
@@ -408,6 +413,11 @@ fn release_unreachable<L: Linked, K>(list: &L, lock: K) -> usize {
                 "This usually indicates a buggy Trace or Drop implementation."
             )
         );
+    }
+
+    #[cfg(feature = "debug")]
+    {
+        crate::debug::GC_DROPPING.with(|d| d.set(false));
     }
 
     count

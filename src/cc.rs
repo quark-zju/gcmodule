@@ -316,7 +316,7 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCcBox<T, O> {
 
             #[cfg(all(feature = "debug", feature = "nightly"))]
             {
-                if !self.is_dropped() {
+                if !self.is_dropped() && crate::debug::GC_DROPPING.with(|t| !t.get()) {
                     let debug = self.deref().optional_debug();
                     if !debug.is_empty() {
                         result += &format!(" {}", debug);
