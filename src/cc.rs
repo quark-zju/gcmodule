@@ -355,6 +355,16 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
         unsafe { self.0.as_ref() }
     }
 
+    /// `trace` without `T: Trace` bound.
+    ///
+    /// Useful for structures with `Cc<T>` fields where `T` does not implement
+    /// `Trace`. For example, `struct S(Cc<Box<dyn MyTrait>>)`. To implement
+    /// `Trace` for `S`, it can use `Cc::trace(&self.0, tracer)`.
+    #[inline]
+    pub fn trace(&self, tracer: &mut Tracer) {
+        self.inner().trace_t(tracer);
+    }
+
     #[inline]
     fn inc_ref(&self) -> usize {
         self.inner().inc_ref()
@@ -498,7 +508,7 @@ impl<T: Trace, O: AbstractObjectSpace> GcClone for RawCc<T, O> {
 
 impl<T: Trace> Trace for Cc<T> {
     fn trace(&self, tracer: &mut Tracer) {
-        self.inner().trace_t(tracer)
+        Cc::<T>::trace(self, tracer)
     }
 
     #[inline]
@@ -509,7 +519,7 @@ impl<T: Trace> Trace for Cc<T> {
 
 impl Trace for Cc<dyn Trace> {
     fn trace(&self, tracer: &mut Tracer) {
-        self.inner().trace_t(tracer)
+        Cc::<dyn Trace>::trace(self, tracer)
     }
 
     #[inline]
