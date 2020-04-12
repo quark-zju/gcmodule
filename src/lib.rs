@@ -297,9 +297,10 @@ mod debug {
     pub(crate) fn log<S1: ToString, S2: ToString>(func: impl Fn() -> (S1, S2)) {
         if cfg!(feature = "debug") {
             let (name, message) = func();
-            let t = std::thread::current().id();
-            let name = format!("{:?}-{}", t, name.to_string());
-            eprintln!("debug::log {} {}", name.to_string(), message.to_string());
+            eprintln!("[gc] {} {}", name.to_string(), message.to_string());
         }
     }
 }
+
+/// Whether the `debug` feature is enabled.
+pub const DEBUG_ENABLED: bool = cfg!(feature = "debug");

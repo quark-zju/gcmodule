@@ -276,7 +276,8 @@ pub(crate) fn visit_list<'a, L: Linked>(list: &'a L, mut func: impl FnMut(&'a L)
 }
 
 const PREV_MASK_COLLECTING: usize = 1;
-const PREV_SHIFT: u32 = 1;
+const PREV_MASK_VISITED: usize = 2;
+const PREV_SHIFT: u32 = 2;
 
 /// Temporarily use `GcHeader.prev` as `gc_ref_count`.
 /// Idea comes from https://bugs.python.org/issue33597.
@@ -319,6 +320,7 @@ fn subtract_refs<L: Linked>(list: &L) {
         }
     };
     visit_list(list, |header| {
+        set_visited(header);
         header.value().gc_traverse(&mut tracer);
     });
 }
@@ -430,6 +432,19 @@ pub(crate) fn is_collecting<L: Linked>(header: &L) -> bool {
     (prev & PREV_MASK_COLLECTING) != 0
 }
 
+fn set_visited<L: Linked>(header: &L) -> bool {
+    let prev = header.prev() as *const L as usize;
+    let visited = (prev & PREV_MASK_VISITED) != 0;
+    debug_assert!(
+        !visited,
+        "bug: double visit: {} (is Trace impl correct?)",
+        debug_name(header)
+    );
+    let new_prev = prev | PREV_MASK_VISITED;
+    header.set_prev(new_prev as _);
+    visited
+}
+
 fn unset_collecting<L: Linked>(header: &L) {
     let prev = header.prev() as *const L as usize;
     let new_prev = (prev & PREV_MASK_COLLECTING) ^ prev;
@@ -442,6 +457,7 @@ fn edit_gc_ref_count<L: Linked>(header: &L, delta: isize) {
     header.set_prev(new_prev as _);
 }
 
+#[allow(unused_variables)]
 fn debug_name<L: Linked>(header: &L) -> String {
     #[cfg(feature = "debug")]
     {

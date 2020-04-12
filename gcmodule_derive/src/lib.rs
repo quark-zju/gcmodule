@@ -38,10 +38,20 @@ pub fn gcmodule_trace_derive(input: TokenStream) -> TokenStream {
                     continue;
                 }
                 let trace_field = match field.ident {
-                    Some(ident) => quote! { self.#ident.trace(tracer); },
+                    Some(i) => quote! {
+                        if gcmodule::DEBUG_ENABLED {
+                            eprintln!("[gc] Trace({}): visit .{}", stringify!(#ident), stringify!(#i));
+                        }
+                        self.#i.trace(tracer);
+                    },
                     None => {
                         let i = syn::Index::from(i);
-                        quote! { self.#i.trace(tracer); }
+                        quote! {
+                            if gcmodule::DEBUG_ENABLED {
+                                eprintln!("[gc] Trace({}): visit .{}", stringify!(#ident), stringify!(#i));
+                            }
+                            self.#i.trace(tracer);
+                        }
                     }
                 };
                 trace_fn_body.push(trace_field);
