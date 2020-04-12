@@ -312,7 +312,8 @@ fn subtract_refs<L: Linked>(list: &L) {
         if is_collecting(header) {
             debug_assert!(
                 !is_unreachable(header),
-                "bug: object becomes unreachable while trying to dec_ref (is Trace impl correct?)"
+                "bug: object {} becomes unreachable while trying to dec_ref (is Trace impl correct?)",
+                debug_name(header)
             );
             edit_gc_ref_count(header, -1);
         }
@@ -439,4 +440,16 @@ fn edit_gc_ref_count<L: Linked>(header: &L, delta: isize) {
     let prev = header.prev() as *const L as isize;
     let new_prev = prev + (1 << PREV_SHIFT) * delta;
     header.set_prev(new_prev as _);
+}
+
+fn debug_name<L: Linked>(header: &L) -> String {
+    #[cfg(feature = "debug")]
+    {
+        return header.value().gc_debug_name();
+    }
+
+    #[cfg(not(feature = "debug"))]
+    {
+        return "(enable gcmodule \"debug\" feature for debugging)".to_string();
+    }
 }

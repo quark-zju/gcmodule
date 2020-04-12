@@ -293,5 +293,12 @@ pub use gcmodule_derive::Trace;
 mod debug {
     use std::cell::Cell;
     thread_local!(pub(crate) static NEXT_DEBUG_NAME: Cell<usize> = Default::default());
-    pub(crate) fn log<S1: ToString, S2: ToString>(_func: impl Fn() -> (S1, S2)) {}
+    pub(crate) fn log<S1: ToString, S2: ToString>(func: impl Fn() -> (S1, S2)) {
+        if cfg!(feature = "debug") {
+            let (name, message) = func();
+            let t = std::thread::current().id();
+            let name = format!("{:?}-{}", t, name.to_string());
+            eprintln!("debug::log {} {}", name.to_string(), message.to_string());
+        }
+    }
 }

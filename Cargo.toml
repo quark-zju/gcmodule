@@ -19,6 +19,7 @@ parking_lot = { version = "0.10", optional = true }
 
 [features]
 default = ["derive", "sync"]
+debug = []
 derive = ["gcmodule_derive"]
 nightly = []
 sync = ["parking_lot"]
