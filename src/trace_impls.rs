@@ -80,6 +80,28 @@ mod tuples {
     );
 }
 
+mod borrow {
+    use super::*;
+    use std::borrow::Cow;
+
+    impl<T: ToOwned + ?Sized> Trace for Cow<'static, T>
+    where
+        T::Owned: Trace,
+    {
+        fn trace(&self, tracer: &mut Tracer) {
+            match self {
+                Cow::Owned(v) => v.trace(tracer),
+                _ => (),
+            }
+        }
+
+        #[inline]
+        fn is_type_tracked() -> bool {
+            T::Owned::is_type_tracked()
+        }
+    }
+}
+
 mod boxed {
     use super::*;
 
