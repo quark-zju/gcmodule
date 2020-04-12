@@ -310,7 +310,10 @@ fn subtract_refs<L: Linked>(list: &L) {
         // safety: The type is known to be GcHeader.
         let header = unsafe { &*(header as *const L) };
         if is_collecting(header) {
-            debug_assert!(!is_unreachable(header));
+            debug_assert!(
+                !is_unreachable(header),
+                "bug: object becomes unreachable while trying to dec_ref (is Trace impl correct?)"
+            );
             edit_gc_ref_count(header, -1);
         }
     };
