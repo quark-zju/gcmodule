@@ -1,5 +1,6 @@
 #![deny(missing_docs)]
 #![cfg_attr(feature = "nightly", feature(coerce_unsized), feature(unsize))]
+#![cfg_attr(all(feature = "debug", feature = "nightly"), feature(specialization))]
 
 //! Reference cycle garbage collection inspired by
 //! [cpython](https://github.com/python/cpython/).

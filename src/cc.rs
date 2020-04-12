@@ -13,11 +13,6 @@ use std::ops::DerefMut;
 use std::panic::UnwindSafe;
 use std::ptr::NonNull;
 
-#[cfg(feature = "debug")]
-use std::any;
-#[cfg(feature = "debug")]
-use std::cell::RefCell;
-
 // Types not tracked by the cycle collector:
 //
 //     CcBox<T>
@@ -48,8 +43,6 @@ pub(crate) struct RawCcBox<T: ?Sized, O: AbstractObjectSpace> {
 
     #[cfg(test)]
     pub(crate) name: String,
-    #[cfg(feature = "debug")]
-    debug_name_field: RefCell<String>,
 
     value: UnsafeCell<ManuallyDrop<T>>,
 }
@@ -170,8 +163,6 @@ impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
             value: UnsafeCell::new(ManuallyDrop::new(value)),
             #[cfg(test)]
             name: debug::NEXT_DEBUG_NAME.with(|n| n.get().to_string()),
-            #[cfg(feature = "debug")]
-            debug_name_field: RefCell::new(String::new()),
         };
         let ccbox_ptr: *mut RawCcBox<T, O> = if is_tracked {
             // Create a GcHeader before the CcBox. This is similar to cpython.
@@ -201,12 +192,6 @@ impl<T: Trace, O: AbstractObjectSpace> RawCc<T, O> {
         }
         debug_assert_eq!(result.ref_count(), 1);
         result
-    }
-
-    #[cfg(feature = "debug")]
-    /// Update name used for debugging.
-    pub fn set_debug_name(&self, name: String) {
-        *self.inner().debug_name_field.borrow_mut() = name;
     }
 
     /// Convert to `RawCc<dyn Trace>`.
@@ -326,16 +311,40 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCcBox<T, O> {
         }
         #[cfg(not(test))]
         {
-            let result = format!("{} at {:p}", any::type_name::<T>(), &self.value);
-            #[cfg(feature = "debug")]
+            #[allow(unused_mut)]
+            let mut result = format!("{} at {:p}", std::any::type_name::<T>(), &self.value);
+
+            #[cfg(all(feature = "debug", feature = "nightly"))]
             {
-                return format!("{} {}", result, self.debug_name_field.borrow());
+                if !self.is_dropped() {
+                    let debug = self.deref().optional_debug();
+                    if !debug.is_empty() {
+                        result += &format!(" {}", debug);
+                    }
+                }
             }
-            #[cfg(not(feature = "debug"))]
-            {
-                return result;
-            }
+
+            return result;
         }
+    }
+}
+
+#[cfg(all(feature = "debug", feature = "nightly"))]
+pub(crate) trait OptionalDebug {
+    fn optional_debug(&self) -> String;
+}
+
+#[cfg(all(feature = "debug", feature = "nightly"))]
+impl<T: ?Sized> OptionalDebug for T {
+    default fn optional_debug(&self) -> String {
+        "".to_string()
+    }
+}
+
+#[cfg(all(feature = "debug", feature = "nightly"))]
+impl<T: std::fmt::Debug + ?Sized> OptionalDebug for T {
+    fn optional_debug(&self) -> String {
+        format!("{:?}", self)
     }
 }
 
