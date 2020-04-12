@@ -511,8 +511,8 @@ impl Trace for Cc<dyn Trace> {
 }
 
 #[cfg(feature = "nightly")]
-impl<T: ?Sized + std::marker::Unsize<U>, U: ?Sized, O: ObjectSpace>
-    std::ops::CoerceUnsized<AbstractCc<U, I>> for AbstractCc<T, O>
+impl<T: ?Sized + std::marker::Unsize<U>, U: ?Sized, O: AbstractObjectSpace>
+    std::ops::CoerceUnsized<RawCc<U, O>> for RawCc<T, O>
 {
 }
 
