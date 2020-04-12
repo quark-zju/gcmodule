@@ -5,6 +5,7 @@ use crate::collect::ObjectSpace as O;
 use crate::Cc;
 use crate::Trace;
 use std::cmp::Ordering;
+use std::fmt;
 
 impl<T: Default + Trace> Default for Cc<T> {
     #[inline]
@@ -58,5 +59,19 @@ impl<T: Ord> Ord for RawCc<T, O> {
     #[inline]
     fn cmp(&self, other: &RawCc<T, O>) -> Ordering {
         (**self).cmp(&**other)
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for RawCc<T, O> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Cc({:?})", **self)
+    }
+}
+
+impl<T: fmt::Debug> fmt::Display for RawCc<T, O> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (**self).fmt(f)
     }
 }
