@@ -200,7 +200,7 @@ mod collections {
 
         #[inline]
         fn is_type_tracked() -> bool {
-            K::is_type_tracked() && V::is_type_tracked()
+            K::is_type_tracked() || V::is_type_tracked()
         }
     }
 
@@ -214,7 +214,7 @@ mod collections {
 
         #[inline]
         fn is_type_tracked() -> bool {
-            K::is_type_tracked() && V::is_type_tracked()
+            K::is_type_tracked() || V::is_type_tracked()
         }
     }
 
@@ -382,7 +382,7 @@ mod result {
         }
 
         fn is_type_tracked() -> bool {
-            T::is_type_tracked() && U::is_type_tracked()
+            T::is_type_tracked() || U::is_type_tracked()
         }
     }
 }
