@@ -1,7 +1,6 @@
 use crate::debug;
 use crate::testutil::test_small_graph;
 use crate::{collect, Cc, Trace, Tracer};
-use quickcheck::quickcheck;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::ops::Deref;
@@ -310,6 +309,7 @@ collect: collect_thread_cycles, 0 unreachable objects"#
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_update_with() {
     // Update on a unique value.
     let log = debug::capture_log(|| {
@@ -423,7 +423,8 @@ fn test_trace_impl_double_visits() {
     }
 }
 
-quickcheck! {
+#[cfg(not(miri))]
+quickcheck::quickcheck! {
     fn test_quickcheck_16_vertex_graph(edges: Vec<u8>, atomic_bits: u16, collect_bits: u16) -> bool {
         test_small_graph(16, &edges, atomic_bits, collect_bits);
         true

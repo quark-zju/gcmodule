@@ -51,11 +51,13 @@ fn test_2_thread_cycle() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_17_thread_cycle() {
     test_cross_thread_cycle(17);
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_100_thread_cycle() {
     test_cross_thread_cycle(100);
 }
@@ -120,16 +122,24 @@ fn test_racy_threads(
 }
 
 #[test]
+fn test_racy_threads_small() {
+    test_racy_threads(16, 10, 0, 0);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
 fn test_racy_threads_drops() {
     test_racy_threads(32, 1000, 0, 0);
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_racy_threads_collects() {
     test_racy_threads(32, 20, 0xffffffff, 0xffffffff);
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_racy_threads_mixed_collects() {
     test_racy_threads(8, 100, 0b11110000, 0b10101010);
 }

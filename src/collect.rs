@@ -388,6 +388,7 @@ fn release_unreachable<L: Linked, K>(list: &L, lock: K) -> usize {
     // to a separate `to_drop` list and the original linked list is no longer
     // used.
     drop(lock);
+    // Drop the reference to the list so we don't reuse it.
     drop(list);
 
     #[cfg(feature = "debug")]

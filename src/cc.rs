@@ -427,7 +427,7 @@ impl<T: ?Sized, O: AbstractObjectSpace> Deref for RawCcBox<T, O> {
     }
 }
 
-fn drop_ccbox<T: ?Sized, O: AbstractObjectSpace>(cc_box: &mut RawCcBox<T, O>) {
+fn drop_ccbox<T: ?Sized, O: AbstractObjectSpace>(cc_box: *mut RawCcBox<T, O>) {
     // safety: See Cc::new. The pointer was created by Box::into_raw.
     let cc_box: Box<RawCcBox<T, O>> = unsafe { Box::from_raw(cc_box) };
     let is_tracked = cc_box.is_tracked();
@@ -461,7 +461,7 @@ impl<T: ?Sized, O: AbstractObjectSpace> Drop for RawCc<T, O> {
         debug_assert!(old_ref_count >= 1);
         if old_ref_count == 1 {
             // safety: CcBox lifetime maintained by ref count.
-            drop_ccbox(unsafe { &mut *ptr });
+            drop_ccbox(ptr);
         }
     }
 }
@@ -484,8 +484,9 @@ impl<T: Trace, O: AbstractObjectSpace> CcDyn for RawCcBox<T, O> {
         });
         // safety: The pointer is compatible. The mutability is different only
         // to satisfy NonNull (NonNull::new requires &mut). The returned value
-        // is still "immutable".
-        let ptr: NonNull<RawCcBox<T, O>> = unsafe { mem::transmute(self) };
+        // is still "immutable". &self can also never be nonnull.
+        let ptr: NonNull<RawCcBox<T, O>> =
+            unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
         let cc = RawCc::<T, O>(ptr);
         Box::new(cc)
     }

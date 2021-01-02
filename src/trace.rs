@@ -4,6 +4,17 @@ pub type Tracer<'a> = dyn FnMut(*const ()) + 'a;
 
 /// Defines how the cycle collector should collect a type.
 ///
+/// ## Customized `Drop` implementation
+///
+/// The [`Drop`] implementation should avoid dereferencing other [`Cc<T>`]
+/// objects.  Failing to do so might cause panic or undefined behavior. For
+/// example, `T1` has a field `Cc<T2>`. The collector might have already
+/// dropped `T2` by the time `T1::drop` runs.
+///
+/// The [`Drop`] implementation should also be careful about cloning
+/// (resurrecting) [`Cc<T>`] objects. If it must do so, the `trace`
+/// implementation should match by avoiding visiting those cloned objects.
+///
 /// ## The `'static` bound
 ///
 /// Types tracked by the collector can potentially be kept alive forever.

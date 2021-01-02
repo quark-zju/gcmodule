@@ -94,8 +94,9 @@ pub fn test_small_graph(n: usize, edges: &[u8], atomic_bits: u16, collect_bits: 
         edge_descs,
     );
     let dropped = drop_count.load(SeqCst);
-    assert!(
-        drop_count.load(SeqCst) == n,
+    assert_eq!(
+        drop_count.load(SeqCst),
+        n,
         "dropped ({}) != n ({}) edges: {:?}",
         dropped,
         n,
