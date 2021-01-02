@@ -1,6 +1,6 @@
 name: build
 
-on: [push, pull_request]
+on: [ push, pull_request ]
 
 jobs:
   build:
@@ -8,10 +8,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --workspace
-    - name: Run tests without default features
-      run: cargo test --no-default-features --lib
+      - uses: actions/checkout@v2
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --workspace
+      - name: Run tests without default features
+        run: cargo test --no-default-features --lib
+
+  miri:
+    name: Run tests under miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          components: miri
+          override: true
+      - name: Run tests under miri
+        run: cargo +nightly miri test
+      - name: Run tests under miri without default features
+        run: cargo +nightly miri test --no-default-features --lib

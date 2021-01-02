@@ -2,7 +2,11 @@
 /// [`Trace::trace`](trait.Trace.html#method.trace).
 pub type Tracer<'a> = dyn FnMut(*const ()) + 'a;
 
-/// Defines how the cycle collector should collect a type.
+/// Defines how the cycle collector should collect a type. Implementors
+/// must ensure that the [`Drop`] impl of any type that implements this trait
+/// does not modify or allow any garbage collected pointers (['Cc<T>']) to
+/// escape. The `Drop` implementation then, is primarily responsible for
+/// releasing any extra heap-allocated memory.
 ///
 /// ## The `'static` bound
 ///
