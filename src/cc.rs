@@ -466,7 +466,7 @@ impl<T: ?Sized, O: AbstractObjectSpace> Drop for RawCc<T, O> {
     }
 }
 
-impl<T: Trace, O: AbstractObjectSpace> CcDyn for RawCcBox<T, O> {
+impl<T: Trace + ?Sized, O: AbstractObjectSpace> CcDyn for RawCcBox<T, O> {
     fn gc_ref_count(&self) -> usize {
         self.ref_count()
     }
@@ -498,7 +498,7 @@ impl<T: Trace, O: AbstractObjectSpace> CcDyn for RawCcBox<T, O> {
     }
 }
 
-impl<T: Trace, O: AbstractObjectSpace> GcClone for RawCc<T, O> {
+impl<T: Trace + ?Sized, O: AbstractObjectSpace> GcClone for RawCc<T, O> {
     fn gc_ref_count(&self) -> usize {
         self.ref_count()
     }
