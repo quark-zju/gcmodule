@@ -45,8 +45,8 @@ pub struct ThreadedCcRef<'a, T: ?Sized> {
 }
 
 // safety: similar to `std::sync::Arc`
-unsafe impl<T: Send + Sync> Send for ThreadedCc<T> {}
-unsafe impl<T: Send + Sync> Sync for ThreadedCc<T> {}
+unsafe impl<T: Send + Sync + ?Sized> Send for ThreadedCc<T> {}
+unsafe impl<T: Send + Sync + ?Sized> Sync for ThreadedCc<T> {}
 
 impl<T: ?Sized> ThreadedCc<T> {
     /// Immutably borrows the wrapped value.

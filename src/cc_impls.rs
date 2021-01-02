@@ -6,6 +6,8 @@ use crate::Cc;
 use crate::Trace;
 use std::cmp::Ordering;
 use std::fmt;
+use std::hash;
+use std::ops::Deref;
 
 impl<T: Default + Trace> Default for Cc<T> {
     #[inline]
@@ -14,7 +16,7 @@ impl<T: Default + Trace> Default for Cc<T> {
     }
 }
 
-impl<T: PartialEq> PartialEq for RawCc<T, O> {
+impl<T: PartialEq + ?Sized> PartialEq for RawCc<T, O> {
     #[inline]
     fn eq(&self, other: &RawCc<T, O>) -> bool {
         **self == **other
@@ -26,9 +28,15 @@ impl<T: PartialEq> PartialEq for RawCc<T, O> {
     }
 }
 
-impl<T: Eq> Eq for RawCc<T, O> {}
+impl<T: hash::Hash + ?Sized> hash::Hash for RawCc<T, O> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        (**self).hash(state)
+    }
+}
 
-impl<T: PartialOrd> PartialOrd for RawCc<T, O> {
+impl<T: Eq + ?Sized> Eq for RawCc<T, O> {}
+
+impl<T: PartialOrd + ?Sized> PartialOrd for RawCc<T, O> {
     #[inline]
     fn partial_cmp(&self, other: &RawCc<T, O>) -> Option<Ordering> {
         (**self).partial_cmp(&**other)
@@ -55,23 +63,29 @@ impl<T: PartialOrd> PartialOrd for RawCc<T, O> {
     }
 }
 
-impl<T: Ord> Ord for RawCc<T, O> {
+impl<T: Ord + ?Sized> Ord for RawCc<T, O> {
     #[inline]
     fn cmp(&self, other: &RawCc<T, O>) -> Ordering {
         (**self).cmp(&**other)
     }
 }
 
-impl<T: fmt::Debug> fmt::Debug for RawCc<T, O> {
+impl<T: fmt::Debug + ?Sized> fmt::Debug for RawCc<T, O> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Cc({:?})", **self)
+        f.debug_tuple("Cc").field(&self.inner().deref()).finish()
     }
 }
 
-impl<T: fmt::Debug> fmt::Display for RawCc<T, O> {
+impl<T: fmt::Display + ?Sized> fmt::Display for RawCc<T, O> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         (**self).fmt(f)
+    }
+}
+
+impl<T: ?Sized> fmt::Pointer for RawCc<T, O> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Pointer::fmt(&self.inner().deref(), f)
     }
 }

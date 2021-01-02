@@ -385,7 +385,7 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
     }
 }
 
-impl<T, O: AbstractObjectSpace> Clone for RawCc<T, O> {
+impl<T: ?Sized, O: AbstractObjectSpace> Clone for RawCc<T, O> {
     #[inline]
     fn clone(&self) -> Self {
         // In theory self.inner().ref_count.locked() is needed.
@@ -466,7 +466,7 @@ impl<T: ?Sized, O: AbstractObjectSpace> Drop for RawCc<T, O> {
     }
 }
 
-impl<T: Trace, O: AbstractObjectSpace> CcDyn for RawCcBox<T, O> {
+impl<T: Trace + ?Sized, O: AbstractObjectSpace> CcDyn for RawCcBox<T, O> {
     fn gc_ref_count(&self) -> usize {
         self.ref_count()
     }
@@ -497,7 +497,7 @@ impl<T: Trace, O: AbstractObjectSpace> CcDyn for RawCcBox<T, O> {
     }
 }
 
-impl<T: Trace, O: AbstractObjectSpace> GcClone for RawCc<T, O> {
+impl<T: Trace + ?Sized, O: AbstractObjectSpace> GcClone for RawCc<T, O> {
     fn gc_ref_count(&self) -> usize {
         self.ref_count()
     }
