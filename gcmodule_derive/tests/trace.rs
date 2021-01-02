@@ -39,14 +39,40 @@ fn test_type_parameters() {
 }
 
 #[test]
-fn test_skip() {
+fn test_field_skip() {
     #[derive(DeriveTrace)]
     struct S2 {
         #[trace(skip)]
         _a: Option<Box<dyn Trace>>,
-        b: (u32, u64),
+        _b: (u32, u64),
     }
     assert!(!S2::is_type_tracked());
+}
+
+#[test]
+fn test_container_skip() {
+    #[derive(DeriveTrace)]
+    #[trace(skip)]
+    struct S0 {
+        _a: Option<Box<dyn Trace>>,
+        _b: (u32, u64),
+    }
+    assert!(!S0::is_type_tracked());
+
+    #[derive(DeriveTrace)]
+    #[trace(skip)]
+    union U0 {
+        _b: (u32, u64),
+    }
+    assert!(!U0::is_type_tracked());
+
+    #[derive(DeriveTrace)]
+    #[trace(skip)]
+    enum E0 {
+        _A(Option<Box<dyn Trace>>),
+        _B(u32, u64),
+    }
+    assert!(!E0::is_type_tracked());
 }
 
 #[test]

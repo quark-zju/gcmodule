@@ -31,44 +31,46 @@ pub fn gcmodule_trace_derive(input: TokenStream) -> TokenStream {
     let ident = input.ident;
     let mut trace_fn_body = Vec::new();
     let mut is_type_tracked_fn_body = Vec::new();
-    match input.data {
-        Data::Struct(data) => {
-            for (i, field) in data.fields.into_iter().enumerate() {
-                if field.attrs.into_iter().any(is_skipped) {
-                    continue;
-                }
-                let trace_field = match field.ident {
-                    Some(i) => quote! {
-                        if gcmodule::DEBUG_ENABLED {
-                            eprintln!("[gc] Trace({}): visit .{}", stringify!(#ident), stringify!(#i));
-                        }
-                        self.#i.trace(tracer);
-                    },
-                    None => {
-                        let i = syn::Index::from(i);
-                        quote! {
+    if !input.attrs.into_iter().any(is_skipped) {
+        match input.data {
+            Data::Struct(data) => {
+                for (i, field) in data.fields.into_iter().enumerate() {
+                    if field.attrs.into_iter().any(is_skipped) {
+                        continue;
+                    }
+                    let trace_field = match field.ident {
+                        Some(i) => quote! {
                             if gcmodule::DEBUG_ENABLED {
                                 eprintln!("[gc] Trace({}): visit .{}", stringify!(#ident), stringify!(#i));
                             }
                             self.#i.trace(tracer);
+                        },
+                        None => {
+                            let i = syn::Index::from(i);
+                            quote! {
+                                if gcmodule::DEBUG_ENABLED {
+                                    eprintln!("[gc] Trace({}): visit .{}", stringify!(#ident), stringify!(#i));
+                                }
+                                self.#i.trace(tracer);
+                            }
                         }
-                    }
-                };
-                trace_fn_body.push(trace_field);
-                let ty = field.ty;
-                is_type_tracked_fn_body.push(quote! {
-                    if <#ty as _gcmodule::Trace>::is_type_tracked() {
-                        return true;
-                    }
+                    };
+                    trace_fn_body.push(trace_field);
+                    let ty = field.ty;
+                    is_type_tracked_fn_body.push(quote! {
+                        if <#ty as _gcmodule::Trace>::is_type_tracked() {
+                            return true;
+                        }
+                    });
+                }
+            }
+            Data::Enum(_) | Data::Union(_) => {
+                trace_fn_body.push(quote! {
+                    compile_error!("enum or union are not supported");
                 });
             }
-        }
-        Data::Enum(_) | Data::Union(_) => {
-            trace_fn_body.push(quote! {
-                compile_error!("enum or union are not supported");
-            });
-        }
-    };
+        };
+    }
     let generated = quote! {
         const _: () = {
             extern crate gcmodule as _gcmodule;
