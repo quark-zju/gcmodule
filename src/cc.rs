@@ -385,7 +385,7 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
     }
 }
 
-impl<T, O: AbstractObjectSpace> Clone for RawCc<T, O> {
+impl<T: ?Sized, O: AbstractObjectSpace> Clone for RawCc<T, O> {
     #[inline]
     fn clone(&self) -> Self {
         // In theory self.inner().ref_count.locked() is needed.
