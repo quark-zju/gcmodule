@@ -22,7 +22,7 @@ use std::ptr::NonNull;
 //     | T (data)  |
 //     +-----------+
 //
-// Types not tracked by the cycle collector:
+// Types tracked by the cycle collector:
 //
 //     CcBoxWithHeader<T>
 //     +----------------------+
