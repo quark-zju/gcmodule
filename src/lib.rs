@@ -148,6 +148,22 @@
 //! }
 //! ```
 //!
+//! ### Weak references
+//!
+//! Similar to `std::rc::Rc`, use [`Cc::downgrade`](struct.RawCc.html#method.downgrade)
+//! to create weak references. Use [`Weak::upgrade`](struct.RawWeak.html#method.upgrade)
+//! to test if the value is still alive and to access the value. For example:
+//!
+//! ```
+//! use gcmodule::{Cc, Weak};
+//!
+//! let value = Cc::new("foo");
+//! let weak: Weak<_> = value.downgrade();
+//! assert_eq!(*weak.upgrade().unwrap(), "foo");
+//! drop(value);
+//! assert!(weak.upgrade().is_none());  // Cannot upgrade after dropping value
+//! ```
+//!
 //! # Technical Details
 //!
 //! ## Memory Layouts
@@ -157,15 +173,16 @@
 //! ### Untracked types
 //!
 //! If [`<T as Trace>::is_type_tracked()`](trait.Trace.html#method.is_type_tracked)
-//! returns `false`, the layout is similar to `Rc<T>` but without a `weak_count`:
+//! returns `false`, the layout is similar to `Rc<T>`:
 //!
 //! ```plain,ignore
 //! Shared T                    Pointer
-//! +------------------+     .-- Cc<T>
-//! | ref_count: usize | <--<
-//! |------------------|     '-- Cc<T>::clone()
-//! | T (shared data)  | <--- Cc<T>::deref()
-//! +------------------+
+//! +-------------------+     .-- Cc<T>
+//! | ref_count: usize  | <--<
+//! | weak_count: usize |     '-- Cc<T>::clone()
+//! |-------------------|
+//! | T (shared data)   | <--- Cc<T>::deref()
+//! +-------------------+
 //! ```
 //!
 //! ### Tracked types
@@ -176,15 +193,16 @@
 //!
 //! ```plain,ignore
 //! Shared T with GcHeader
-//! +------------------+
-//! | gc_prev: pointer | ---> GcHeader in a linked list.
-//! | gc_next: pointer |
-//! | vptr<T>: pointer | ---> Pointer to the `&T as &dyn Trace` virtual table.
-//! |------------------|
-//! | ref_count: usize | <--- Cc<T>
-//! | ---------------- |
-//! | T (shared data)  | <--- Cc<T>::deref()
-//! +------------------+
+//! +-------------------+
+//! | gc_prev: pointer  | ---> GcHeader in a linked list.
+//! | gc_next: pointer  |
+//! | vptr<T>: pointer  | ---> Pointer to the `&T as &dyn Trace` virtual table.
+//! |-------------------|
+//! | ref_count: usize  | <--- Cc<T>
+//! | weak_count: usize |
+//! | ----------------- |
+//! | T (shared data)   | <--- Cc<T>::deref()
+//! +-------------------+
 //! ```
 //!
 //! ## Incorrect `Trace` implementation
@@ -256,7 +274,7 @@ pub mod testutil;
 mod trace;
 mod trace_impls;
 
-pub use cc::{Cc, RawCc};
+pub use cc::{Cc, RawCc, RawWeak, Weak};
 pub use collect::{collect_thread_cycles, count_thread_tracked, ObjectSpace};
 pub use trace::{Trace, Tracer};
 

@@ -37,8 +37,6 @@ use std::ptr::NonNull;
 /// The data shared by multiple `RawCc<T, O>` pointers.
 #[repr(C)]
 pub(crate) struct RawCcBox<T: ?Sized, O: AbstractObjectSpace> {
-    /// The lowest REF_COUNT_SHIFT bits are used for metadata.
-    /// The higher bits are used for ref count.
     pub(crate) ref_count: O::RefCount,
 
     #[cfg(test)]
@@ -75,16 +73,23 @@ pub struct RawCcBoxWithGcHeader<T: ?Sized, O: AbstractObjectSpace> {
 /// ```
 pub type Cc<T> = RawCc<T, ObjectSpace>;
 
+/// Weak reference of [`Cc`](type.Cc.html).
+pub type Weak<T> = RawWeak<T, ObjectSpace>;
+
 /// Low-level type for [`Cc<T>`](type.Cc.html).
 pub struct RawCc<T: ?Sized, O: AbstractObjectSpace>(NonNull<RawCcBox<T, O>>);
+
+/// Low-level type for [`Weak<T>`](type.Weak.html).
+pub struct RawWeak<T: ?Sized, O: AbstractObjectSpace>(NonNull<RawCcBox<T, O>>);
 
 // `ManuallyDrop<T>` does not implement `UnwindSafe`. But `CcBox::drop` does
 // make sure `T` is dropped. If `T` is unwind-safe, so does `CcBox<T>`.
 impl<T: UnwindSafe + ?Sized> UnwindSafe for RawCcBox<T, ObjectSpace> {}
 
-// `NonNull` does not implement `UnwindSafe`. But `Cc` only uses it
+// `NonNull` does not implement `UnwindSafe`. But `Cc` and `Weak` only use it
 // as a "const" pointer. If `T` is unwind-safe, so does `Cc<T>`.
-impl<T: UnwindSafe + ?Sized> UnwindSafe for Cc<T> {}
+impl<T: UnwindSafe + ?Sized, O: AbstractObjectSpace> UnwindSafe for RawCc<T, O> {}
+impl<T: UnwindSafe + ?Sized, O: AbstractObjectSpace> UnwindSafe for RawWeak<T, O> {}
 
 /// Type-erased `Cc<T>` with interfaces needed by GC.
 ///
@@ -276,6 +281,11 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCcBox<T, O> {
     }
 
     #[inline]
+    fn weak_count(&self) -> usize {
+        self.ref_count.weak_count()
+    }
+
+    #[inline]
     fn set_dropped(&self) -> bool {
         self.ref_count.set_dropped()
     }
@@ -349,6 +359,44 @@ impl<T: std::fmt::Debug + ?Sized> OptionalDebug for T {
 }
 
 impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
+    /// Obtains a "weak reference", a non-owning pointer.
+    pub fn downgrade(&self) -> RawWeak<T, O> {
+        let inner = self.inner();
+        inner.ref_count.inc_weak();
+        debug::log(|| {
+            (
+                inner.debug_name(),
+                format!("new-weak ({})", inner.ref_count.weak_count()),
+            )
+        });
+        RawWeak(self.0)
+    }
+}
+
+impl<T: ?Sized, O: AbstractObjectSpace> RawWeak<T, O> {
+    /// Attempts to obtain a "strong reference".
+    ///
+    /// Returns `None` if the value has already been dropped.
+    pub fn upgrade(&self) -> Option<RawCc<T, O>> {
+        let inner = self.inner();
+        // Make the below operation "atomic".
+        let _locked = inner.ref_count.locked();
+        if inner.is_dropped() {
+            None
+        } else {
+            inner.inc_ref();
+            debug::log(|| {
+                (
+                    inner.debug_name(),
+                    format!("new-strong ({})", inner.ref_count.ref_count()),
+                )
+            });
+            Some(RawCc(self.0))
+        }
+    }
+}
+
+impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
     #[inline]
     pub(crate) fn inner(&self) -> &RawCcBox<T, O> {
         // safety: CcBox lifetime maintained by ref count. Pointer is valid.
@@ -380,8 +428,21 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
         self.inner().ref_count()
     }
 
+    #[inline]
+    fn weak_count(&self) -> usize {
+        self.inner().weak_count()
+    }
+
     pub(crate) fn debug_name(&self) -> String {
         self.inner().debug_name()
+    }
+}
+
+impl<T: ?Sized, O: AbstractObjectSpace> RawWeak<T, O> {
+    #[inline]
+    fn inner(&self) -> &RawCcBox<T, O> {
+        // safety: CcBox lifetime maintained by ref count. Pointer is valid.
+        unsafe { self.0.as_ref() }
     }
 }
 
@@ -394,6 +455,22 @@ impl<T: ?Sized, O: AbstractObjectSpace> Clone for RawCc<T, O> {
         // let _locked = self.inner().ref_count.locked();
         self.inc_ref();
         debug::log(|| (self.debug_name(), format!("clone ({})", self.ref_count())));
+        Self(self.0)
+    }
+}
+
+impl<T: ?Sized, O: AbstractObjectSpace> Clone for RawWeak<T, O> {
+    #[inline]
+    fn clone(&self) -> Self {
+        let inner = self.inner();
+        let ref_count = &inner.ref_count;
+        ref_count.inc_weak();
+        debug::log(|| {
+            (
+                inner.debug_name(),
+                format!("clone-weak ({})", ref_count.weak_count()),
+            )
+        });
         Self(self.0)
     }
 }
@@ -453,13 +530,41 @@ fn drop_ccbox<T: ?Sized, O: AbstractObjectSpace>(cc_box: *mut RawCcBox<T, O>) {
 impl<T: ?Sized, O: AbstractObjectSpace> Drop for RawCc<T, O> {
     fn drop(&mut self) {
         let ptr: *mut RawCcBox<T, O> = self.0.as_ptr();
+        let inner = self.inner();
         // Block threaded collector. This is needed because "drop()" is a
         // complex operation. The whole operation needs to be "atomic".
-        let _locked = self.inner().ref_count.locked();
+        let _locked = inner.ref_count.locked();
         let old_ref_count = self.dec_ref();
         debug::log(|| (self.debug_name(), format!("drop ({})", self.ref_count())));
         debug_assert!(old_ref_count >= 1);
         if old_ref_count == 1 {
+            if self.weak_count() == 0 {
+                // safety: CcBox lifetime maintained by ref count.
+                drop_ccbox(ptr);
+            } else {
+                inner.drop_t();
+            }
+        }
+    }
+}
+
+impl<T: ?Sized, O: AbstractObjectSpace> Drop for RawWeak<T, O> {
+    fn drop(&mut self) {
+        let ptr: *mut RawCcBox<T, O> = self.0.as_ptr();
+        let inner = self.inner();
+        let ref_count = &inner.ref_count;
+        // Block threaded collector to "freeze" the ref count, for safety.
+        let _locked = ref_count.locked();
+        let old_ref_count = ref_count.ref_count();
+        let old_weak_count = ref_count.dec_weak();
+        debug::log(|| {
+            (
+                inner.debug_name(),
+                format!("drop-weak ({})", ref_count.weak_count()),
+            )
+        });
+        debug_assert!(old_weak_count >= 1);
+        if old_ref_count == 0 && old_weak_count == 1 {
             // safety: CcBox lifetime maintained by ref count.
             drop_ccbox(ptr);
         }

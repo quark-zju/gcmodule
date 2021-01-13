@@ -110,6 +110,76 @@ fn test_simple_non_trait_cycles() {
 }
 
 #[test]
+fn test_weakref_without_cycles() {
+    let log = debug::capture_log(|| {
+        let s1 = Cc::new("S".to_string());
+        let w1 = s1.downgrade();
+        let s2 = w1.upgrade().unwrap();
+        let w2 = w1.clone();
+        drop(s1);
+        drop(s2);
+        let w3 = w2.clone();
+        assert!(w3.upgrade().is_none());
+        assert!(w2.upgrade().is_none());
+        assert!(w1.upgrade().is_none());
+    });
+    assert_eq!(
+        log,
+        r#"
+0: new (CcBox), new-weak (1), new-strong (2), clone-weak (2), drop (1), drop (0), drop (T), clone-weak (3), drop-weak (2), drop-weak (1), drop-weak (0), drop (CcBox)"#
+    );
+}
+
+#[test]
+fn test_weakref_with_cycles() {
+    let log = debug::capture_log(|| {
+        debug::NEXT_DEBUG_NAME.with(|n| n.set(1));
+        let a: Cc<RefCell<Vec<Box<dyn Trace>>>> = Cc::new(RefCell::new(Vec::new()));
+        debug::NEXT_DEBUG_NAME.with(|n| n.set(2));
+        let b: Cc<RefCell<Vec<Box<dyn Trace>>>> = Cc::new(RefCell::new(Vec::new()));
+        a.borrow_mut().push(Box::new(b.clone()));
+        b.borrow_mut().push(Box::new(a.clone()));
+        let wa = a.downgrade();
+        let wa1 = wa.clone();
+        let wb = b.downgrade();
+        drop(a);
+        drop(b);
+        assert!(wa.upgrade().is_some());
+        assert!(wb.upgrade().is_some());
+        assert_eq!(collect::collect_thread_cycles(), 2);
+        assert!(wa.upgrade().is_none());
+        assert!(wa1.upgrade().is_none());
+        assert!(wb.upgrade().is_none());
+        assert!(wb.clone().upgrade().is_none());
+    });
+    assert_eq!(
+        log,
+        r#"
+1: new (CcBoxWithGcHeader)
+2: new (CcBoxWithGcHeader), clone (2)
+1: clone (2), new-weak (1), clone-weak (2)
+2: new-weak (1)
+1: drop (1)
+2: drop (1)
+1: new-strong (2), drop (1)
+2: new-strong (2), drop (1)
+collect: collect_thread_cycles
+2: gc_traverse
+1: trace, gc_traverse
+2: trace
+collect: 2 unreachable objects
+2: gc_clone (2)
+1: gc_clone (2)
+2: drop (T)
+1: drop (1), drop (T)
+2: drop (1), drop (0)
+1: drop (0)
+2: clone-weak (2), drop-weak (1), drop-weak (0), drop (CcBoxWithGcHeader)
+1: drop-weak (1), drop-weak (0), drop (CcBoxWithGcHeader)"#
+    );
+}
+
+#[test]
 fn test_drop_by_ref_count() {
     let log = debug::capture_log(|| test_small_graph(3, &[], 0, 0));
     assert_eq!(
