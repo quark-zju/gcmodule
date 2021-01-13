@@ -12,6 +12,7 @@ thread_local!(pub(crate) static VERBOSE: bool = std::env::var("VERBOSE").is_ok()
 
 /// Enable debug log for the given scope. Return the debug log.
 pub(crate) fn capture_log(mut func: impl FnMut()) -> String {
+    NEXT_DEBUG_NAME.with(|n| n.set(0));
     LAST_NAME.with(|n| n.borrow_mut().clear());
     ENABLED.with(|e| e.set(true));
     func();
