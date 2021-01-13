@@ -116,12 +116,18 @@ fn test_weakref_without_cycles() {
         let w1 = s1.downgrade();
         let s2 = w1.upgrade().unwrap();
         let w2 = w1.clone();
+        assert_eq!(s2.strong_count(), 2);
+        assert_eq!(s2.weak_count(), 2);
+        assert_eq!(w2.strong_count(), 2);
+        assert_eq!(w2.weak_count(), 2);
         drop(s1);
         drop(s2);
         let w3 = w2.clone();
         assert!(w3.upgrade().is_none());
         assert!(w2.upgrade().is_none());
         assert!(w1.upgrade().is_none());
+        assert_eq!(w3.strong_count(), 0);
+        assert_eq!(w3.weak_count(), 3);
     });
     assert_eq!(
         log,
@@ -135,13 +141,21 @@ fn test_weakref_with_cycles() {
     let log = debug::capture_log(|| {
         debug::NEXT_DEBUG_NAME.with(|n| n.set(1));
         let a: Cc<RefCell<Vec<Box<dyn Trace>>>> = Cc::new(RefCell::new(Vec::new()));
+        assert_eq!(a.strong_count(), 1);
         debug::NEXT_DEBUG_NAME.with(|n| n.set(2));
         let b: Cc<RefCell<Vec<Box<dyn Trace>>>> = Cc::new(RefCell::new(Vec::new()));
         a.borrow_mut().push(Box::new(b.clone()));
         b.borrow_mut().push(Box::new(a.clone()));
+        assert_eq!(a.strong_count(), 2);
+        assert_eq!(a.weak_count(), 0);
         let wa = a.downgrade();
+        assert_eq!(a.weak_count(), 1);
         let wa1 = wa.clone();
+        assert_eq!(a.weak_count(), 2);
         let wb = b.downgrade();
+        assert_eq!(wa.strong_count(), 2);
+        assert_eq!(wa.weak_count(), 2);
+        assert_eq!(wb.weak_count(), 1);
         drop(a);
         drop(b);
         assert!(wa.upgrade().is_some());
@@ -151,6 +165,8 @@ fn test_weakref_with_cycles() {
         assert!(wa1.upgrade().is_none());
         assert!(wb.upgrade().is_none());
         assert!(wb.clone().upgrade().is_none());
+        assert_eq!(wa.weak_count(), 2);
+        assert_eq!(wa.strong_count(), 0);
     });
     assert_eq!(
         log,

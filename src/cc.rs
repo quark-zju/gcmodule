@@ -371,6 +371,12 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
         });
         RawWeak(self.0)
     }
+
+    /// Gets the reference count not considering weak references.
+    #[inline]
+    pub fn strong_count(&self) -> usize {
+        self.ref_count()
+    }
 }
 
 impl<T: ?Sized, O: AbstractObjectSpace> RawWeak<T, O> {
@@ -393,6 +399,18 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawWeak<T, O> {
             });
             Some(RawCc(self.0))
         }
+    }
+
+    /// Gets the reference count not considering weak references.
+    #[inline]
+    pub fn strong_count(&self) -> usize {
+        self.inner().ref_count()
+    }
+
+    /// Get the weak (non-owning) reference count.
+    #[inline]
+    pub fn weak_count(&self) -> usize {
+        self.inner().weak_count()
     }
 }
 
@@ -428,8 +446,9 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
         self.inner().ref_count()
     }
 
+    /// Get the weak (non-owning) reference count.
     #[inline]
-    fn weak_count(&self) -> usize {
+    pub fn weak_count(&self) -> usize {
         self.inner().weak_count()
     }
 
