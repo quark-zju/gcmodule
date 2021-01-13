@@ -33,14 +33,19 @@ pub trait RefCount: 'static {
     ) -> Option<parking_lot::lock_api::RwLockReadGuard<'_, parking_lot::RawRwLock, ()>> {
         None
     }
+
+    // Weakref support.
+    fn inc_weak(&self) -> usize;
+    fn dec_weak(&self) -> usize;
+    fn weak_count(&self) -> usize;
 }
 
-pub struct SingleThreadRefCount(Cell<usize>);
+pub struct SingleThreadRefCount(Cell<usize>, Cell<usize>);
 
 impl SingleThreadRefCount {
     pub fn new(tracked: bool) -> Self {
         let value = (1 << REF_COUNT_SHIFT) | if tracked { REF_COUNT_MASK_TRACKED } else { 0 };
-        Self(Cell::new(value))
+        Self(Cell::new(value), Cell::new(0))
     }
 }
 
@@ -79,5 +84,24 @@ impl RefCount for SingleThreadRefCount {
         let value = Cell::get(&self.0);
         self.0.set(value - (1 << REF_COUNT_SHIFT));
         value >> REF_COUNT_SHIFT
+    }
+
+    #[inline]
+    fn inc_weak(&self) -> usize {
+        let value = Cell::get(&self.1);
+        self.1.set(value + 1);
+        value
+    }
+
+    #[inline]
+    fn dec_weak(&self) -> usize {
+        let value = Cell::get(&self.1);
+        self.1.set(value - 1);
+        value
+    }
+
+    #[inline]
+    fn weak_count(&self) -> usize {
+        Cell::get(&self.1)
     }
 }
