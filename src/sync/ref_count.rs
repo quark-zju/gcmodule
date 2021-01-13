@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 pub struct ThreadedRefCount {
     ref_count: AtomicUsize,
+    weak_count: AtomicUsize,
     pub(crate) collector_lock: Arc<RwLock<()>>,
 }
 
@@ -19,6 +20,7 @@ impl ThreadedRefCount {
             ref_count: AtomicUsize::new(
                 (1 << REF_COUNT_SHIFT) | if tracked { REF_COUNT_MASK_TRACKED } else { 0 },
             ),
+            weak_count: AtomicUsize::new(0),
         }
     }
 }
@@ -58,5 +60,20 @@ impl RefCount for ThreadedRefCount {
     #[inline]
     fn locked(&self) -> Option<RwLockReadGuard<'_, RawRwLock, ()>> {
         Some(self.collector_lock.read_recursive())
+    }
+
+    #[inline]
+    fn inc_weak(&self) -> usize {
+        self.weak_count.fetch_add(1, AcqRel)
+    }
+
+    #[inline]
+    fn dec_weak(&self) -> usize {
+        self.weak_count.fetch_sub(1, AcqRel)
+    }
+
+    #[inline]
+    fn weak_count(&self) -> usize {
+        self.weak_count.load(Acquire)
     }
 }
