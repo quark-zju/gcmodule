@@ -58,6 +58,8 @@ use std::pin::Pin;
 pub struct ObjectSpace {
     /// Linked list to the tracked objects.
     pub(crate) list: RefCell<Pin<Box<GcHeader>>>,
+    /// Should this object space collect cycles on drop?
+    pub(crate) collect_on_drop: Cell<bool>,
 
     /// Mark `ObjectSpace` as `!Send` and `!Sync`. This enforces thread-exclusive
     /// access to the linked list so methods can use `&self` instead of
@@ -133,6 +135,7 @@ impl Default for ObjectSpace {
     fn default() -> Self {
         let header = new_gc_list();
         Self {
+            collect_on_drop: Cell::new(true),
             list: RefCell::new(header),
             _phantom: PhantomData,
         }
@@ -171,7 +174,9 @@ impl ObjectSpace {
 
 impl Drop for ObjectSpace {
     fn drop(&mut self) {
-        self.collect_cycles();
+        if self.collect_on_drop.get() {
+            self.collect_cycles();
+        }
     }
 }
 
@@ -236,6 +241,11 @@ impl GcHeader {
 pub fn collect_thread_cycles() -> usize {
     debug::log(|| ("collect", "collect_thread_cycles"));
     THREAD_OBJECT_SPACE.with(|list| list.collect_cycles())
+}
+
+/// Toggle default garbage collection on thread exit
+pub fn set_thread_collect_on_drop(collect: bool) {
+    THREAD_OBJECT_SPACE.with(|list| list.collect_on_drop.set(collect));
 }
 
 /// Count number of objects tracked by the collector in the current thread
