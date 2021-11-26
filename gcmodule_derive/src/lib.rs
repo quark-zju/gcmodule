@@ -11,7 +11,7 @@
 //!     a: String,
 //!     b: Option<T>,
 //!
-//!     #[trace(skip)] // ignore this field for Trace.
+//!     #[skip_trace] // ignore this field for Trace.
 //!     c: MyType,
 //! }
 //!
@@ -19,83 +19,68 @@
 //! ```
 extern crate proc_macro;
 
-use proc_macro::TokenStream;
 use quote::quote;
-use quote::ToTokens;
-use syn::Data;
+use syn::Attribute;
+use synstructure::{decl_derive, AddBounds, BindStyle, Structure};
 
-#[proc_macro_derive(Trace, attributes(trace))]
-pub fn gcmodule_trace_derive(input: TokenStream) -> TokenStream {
-    let input = syn::parse_macro_input!(input as syn::DeriveInput);
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let ident = input.ident;
-    let mut trace_fn_body = Vec::new();
-    let mut is_type_tracked_fn_body = Vec::new();
-    if !input.attrs.into_iter().any(is_skipped) {
-        match input.data {
-            Data::Struct(data) => {
-                for (i, field) in data.fields.into_iter().enumerate() {
-                    if field.attrs.into_iter().any(is_skipped) {
-                        continue;
-                    }
-                    let trace_field = match field.ident {
-                        Some(i) => quote! {
-                            if gcmodule::DEBUG_ENABLED {
-                                eprintln!("[gc] Trace({}): visit .{}", stringify!(#ident), stringify!(#i));
-                            }
-                            self.#i.trace(tracer);
-                        },
-                        None => {
-                            let i = syn::Index::from(i);
-                            quote! {
-                                if gcmodule::DEBUG_ENABLED {
-                                    eprintln!("[gc] Trace({}): visit .{}", stringify!(#ident), stringify!(#i));
-                                }
-                                self.#i.trace(tracer);
-                            }
-                        }
-                    };
-                    trace_fn_body.push(trace_field);
-                    let ty = field.ty;
-                    is_type_tracked_fn_body.push(quote! {
-                        if <#ty as _gcmodule::Trace>::is_type_tracked() {
-                            return true;
-                        }
-                    });
-                }
-            }
-            Data::Enum(_) | Data::Union(_) => {
-                trace_fn_body.push(quote! {
-                    compile_error!("enum or union are not supported");
-                });
-            }
-        };
-    }
-    let generated = quote! {
-        const _: () = {
-            extern crate gcmodule as _gcmodule;
-            impl #impl_generics _gcmodule::Trace for #ident #ty_generics #where_clause {
-                fn trace(&self, tracer: &mut _gcmodule::Tracer) {
-                    #( #trace_fn_body )*
-                }
-                fn is_type_tracked() -> bool {
-                    #( #is_type_tracked_fn_body )*
-                    false
-                }
-            }
-        };
-    };
-    generated.into()
+decl_derive!([Trace, attributes(skip_trace, ignore_tracking, force_tracking)] => derive_trace);
+
+fn has_attr(attrs: &[Attribute], attr: &str) -> bool {
+    attrs.iter().any(|a| a.path.is_ident(attr))
 }
 
-fn is_skipped(attr: syn::Attribute) -> bool {
-    // check if `#[trace(skip)]` exists.
-    if attr.path.to_token_stream().to_string() == "trace" {
-        for token in attr.tokens {
-            if token.to_string() == "(skip)" {
+fn derive_trace(mut s: Structure<'_>) -> proc_macro2::TokenStream {
+    if has_attr(&s.ast().attrs, "skip_trace") {
+        s.filter(|_| false);
+        return s.bound_impl(
+            quote! {::gcmodule::Trace},
+            quote! {
+                fn trace(&self, _tracer: &mut ::gcmodule::Tracer) {}
+                fn is_type_tracked() -> bool {
+                    false
+                }
+            },
+        );
+    }
+    let force_tracking = has_attr(&s.ast().attrs, "force_tracking");
+
+    s.filter_variants(|f| !has_attr(f.ast().attrs, "skip_trace"));
+    s.filter(|f| !has_attr(&f.ast().attrs, "skip_trace"));
+    s.add_bounds(AddBounds::Fields);
+    s.bind_with(|_| BindStyle::Ref);
+
+    let trace_body = s.each(|bi| quote!(::gcmodule::Trace::trace(#bi, tracer)));
+
+    let is_type_tracked_body = if force_tracking {
+        quote! {
+            true
+        }
+    } else {
+        s.filter(|f| !has_attr(&f.ast().attrs, "ignore_tracking"));
+        let ty = s
+            .variants()
+            .iter()
+            .flat_map(|v| v.bindings().iter())
+            .map(|bi| &bi.ast().ty);
+        quote! {
+            #(
+            if <#ty>::is_type_tracked() {
                 return true;
             }
+            )*
+            false
         }
-    }
-    false
+    };
+
+    s.bound_impl(
+        quote! {::gcmodule::Trace},
+        quote! {
+            fn trace(&self, tracer: &mut ::gcmodule::Tracer) {
+                match *self { #trace_body }
+            }
+            fn is_type_tracked() -> bool {
+                #is_type_tracked_body
+            }
+        },
+    )
 }

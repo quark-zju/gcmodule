@@ -42,7 +42,7 @@ fn test_type_parameters() {
 fn test_field_skip() {
     #[derive(DeriveTrace)]
     struct S2 {
-        #[trace(skip)]
+        #[skip_trace]
         _a: Option<Box<dyn Trace>>,
         _b: (u32, u64),
     }
@@ -52,7 +52,7 @@ fn test_field_skip() {
 #[test]
 fn test_container_skip() {
     #[derive(DeriveTrace)]
-    #[trace(skip)]
+    #[skip_trace]
     struct S0 {
         _a: Option<Box<dyn Trace>>,
         _b: (u32, u64),
@@ -60,19 +60,44 @@ fn test_container_skip() {
     assert!(!S0::is_type_tracked());
 
     #[derive(DeriveTrace)]
-    #[trace(skip)]
+    #[skip_trace]
     union U0 {
         _b: (u32, u64),
     }
     assert!(!U0::is_type_tracked());
 
     #[derive(DeriveTrace)]
-    #[trace(skip)]
+    #[skip_trace]
     enum E0 {
         _A(Option<Box<dyn Trace>>),
         _B(u32, u64),
     }
     assert!(!E0::is_type_tracked());
+}
+
+#[test]
+fn test_recursive_struct() {
+    #[derive(DeriveTrace)]
+    struct A {
+        b: Box<dyn Trace>,
+        #[ignore_tracking]
+        a: Box<A>,
+    }
+    assert!(A::is_type_tracked());
+
+    #[derive(DeriveTrace)]
+    struct B {
+        #[ignore_tracking]
+        b: Box<B>,
+    }
+    assert!(!B::is_type_tracked());
+
+    #[derive(DeriveTrace)]
+    #[force_tracking]
+    struct C {
+        c: (Box<C>, Box<dyn Trace>),
+    }
+    assert!(C::is_type_tracked());
 }
 
 #[test]

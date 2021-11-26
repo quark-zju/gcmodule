@@ -131,7 +131,7 @@
 //! assert_eq!(gcmodule::count_thread_tracked(), 1);
 //! ```
 //!
-//! The `#[trace(skip)]` attribute can be used to skip tracking specified fields
+//! The `#[skip_trace]` attribute can be used to skip tracking specified fields
 //! in a structure.
 //!
 //! ```
@@ -143,7 +143,7 @@
 //! struct Foo {
 //!     field: String,
 //!
-//!     #[trace(skip)]
+//!     #[skip_trace]
 //!     alien: AlienStruct, // Field skipped in Trace implementation.
 //! }
 //! ```
@@ -299,7 +299,7 @@ pub use sync::{collect::ThreadedObjectSpace, ThreadedCc, ThreadedCcRef};
 ///     a: S1,
 ///     b: Option<S2<T, u8>>,
 ///
-///     #[trace(skip)]
+///     #[skip_trace]
 ///     c: AlienStruct,  // c is not tracked by the collector.
 /// }
 ///
