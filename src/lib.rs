@@ -143,7 +143,7 @@
 //! struct Foo {
 //!     field: String,
 //!
-//!     #[skip_trace]
+//!     #[trace(skip)]
 //!     alien: AlienStruct, // Field skipped in Trace implementation.
 //! }
 //! ```
@@ -299,7 +299,7 @@ pub use sync::{collect::ThreadedObjectSpace, ThreadedCc, ThreadedCcRef};
 ///     a: S1,
 ///     b: Option<S2<T, u8>>,
 ///
-///     #[skip_trace]
+///     #[trace(skip)]
 ///     c: AlienStruct,  // c is not tracked by the collector.
 /// }
 ///

@@ -1,7 +1,21 @@
-use gcmodule::{Cc, Trace};
+use gcmodule::{Cc, Trace, Tracer};
 use gcmodule_derive::Trace as DeriveTrace;
 use std::cell::RefCell;
 use std::rc::Rc;
+
+#[test]
+fn test_empty() {
+    #[derive(DeriveTrace)]
+    struct S0;
+
+    #[derive(DeriveTrace)]
+    enum E0 {}
+
+    #[derive(DeriveTrace)]
+    enum E1 {
+        _A,
+    }
+}
 
 #[test]
 fn test_named_struct() {
@@ -42,7 +56,7 @@ fn test_type_parameters() {
 fn test_field_skip() {
     #[derive(DeriveTrace)]
     struct S2 {
-        #[skip_trace]
+        #[trace(skip)]
         _a: Option<Box<dyn Trace>>,
         _b: (u32, u64),
     }
@@ -52,7 +66,7 @@ fn test_field_skip() {
 #[test]
 fn test_container_skip() {
     #[derive(DeriveTrace)]
-    #[skip_trace]
+    #[trace(skip)]
     struct S0 {
         _a: Option<Box<dyn Trace>>,
         _b: (u32, u64),
@@ -60,14 +74,14 @@ fn test_container_skip() {
     assert!(!S0::is_type_tracked());
 
     #[derive(DeriveTrace)]
-    #[skip_trace]
+    #[trace(skip)]
     union U0 {
         _b: (u32, u64),
     }
     assert!(!U0::is_type_tracked());
 
     #[derive(DeriveTrace)]
-    #[skip_trace]
+    #[trace(skip)]
     enum E0 {
         _A(Option<Box<dyn Trace>>),
         _B(u32, u64),
@@ -80,20 +94,20 @@ fn test_recursive_struct() {
     #[derive(DeriveTrace)]
     struct A {
         b: Box<dyn Trace>,
-        #[ignore_tracking]
+        #[trace(tracking(ignore))]
         a: Box<A>,
     }
     assert!(A::is_type_tracked());
 
     #[derive(DeriveTrace)]
     struct B {
-        #[ignore_tracking]
+        #[trace(tracking(ignore))]
         b: Box<B>,
     }
     assert!(!B::is_type_tracked());
 
     #[derive(DeriveTrace)]
-    #[force_tracking]
+    #[trace(tracking(force))]
     struct C {
         c: (Box<C>, Box<dyn Trace>),
     }
@@ -124,4 +138,14 @@ fn test_real_cycles() {
         *(s3.0.borrow_mut()) = Some(Box::new(s1.clone()));
     }
     assert_eq!(gcmodule::collect_thread_cycles(), 3);
+}
+
+#[test]
+fn test_with() {
+    struct Child;
+
+    fn trace_child(_child: &Child, _tracer: &mut Tracer) {}
+
+    #[derive(DeriveTrace)]
+    struct Parent(#[trace(with(trace_child))] Child);
 }
