@@ -1,7 +1,21 @@
-use gcmodule::{Cc, Trace};
+use gcmodule::{Cc, Trace, Tracer};
 use gcmodule_derive::Trace as DeriveTrace;
 use std::cell::RefCell;
 use std::rc::Rc;
+
+#[test]
+fn test_empty() {
+    #[derive(DeriveTrace)]
+    struct S0;
+
+    #[derive(DeriveTrace)]
+    enum E0 {}
+
+    #[derive(DeriveTrace)]
+    enum E1 {
+        _A,
+    }
+}
 
 #[test]
 fn test_named_struct() {
@@ -76,6 +90,31 @@ fn test_container_skip() {
 }
 
 #[test]
+fn test_recursive_struct() {
+    #[derive(DeriveTrace)]
+    struct A {
+        b: Box<dyn Trace>,
+        #[trace(tracking(ignore))]
+        a: Box<A>,
+    }
+    assert!(A::is_type_tracked());
+
+    #[derive(DeriveTrace)]
+    struct B {
+        #[trace(tracking(ignore))]
+        b: Box<B>,
+    }
+    assert!(!B::is_type_tracked());
+
+    #[derive(DeriveTrace)]
+    #[trace(tracking(force))]
+    struct C {
+        c: (Box<C>, Box<dyn Trace>),
+    }
+    assert!(C::is_type_tracked());
+}
+
+#[test]
 fn test_unnamed_struct() {
     #[derive(DeriveTrace)]
     struct S0(u8, String);
@@ -99,4 +138,14 @@ fn test_real_cycles() {
         *(s3.0.borrow_mut()) = Some(Box::new(s1.clone()));
     }
     assert_eq!(gcmodule::collect_thread_cycles(), 3);
+}
+
+#[test]
+fn test_with() {
+    struct Child;
+
+    fn trace_child(_child: &Child, _tracer: &mut Tracer) {}
+
+    #[derive(DeriveTrace)]
+    struct Parent(#[trace(with(trace_child))] Child);
 }

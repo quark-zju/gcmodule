@@ -131,7 +131,7 @@
 //! assert_eq!(gcmodule::count_thread_tracked(), 1);
 //! ```
 //!
-//! The `#[trace(skip)]` attribute can be used to skip tracking specified fields
+//! The `#[skip_trace]` attribute can be used to skip tracking specified fields
 //! in a structure.
 //!
 //! ```
