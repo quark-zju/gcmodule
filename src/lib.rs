@@ -275,7 +275,9 @@ mod trace;
 mod trace_impls;
 
 pub use cc::{Cc, RawCc, RawWeak, Weak};
-pub use collect::{collect_thread_cycles, count_thread_tracked, ObjectSpace};
+pub use collect::{
+    collect_thread_cycles, count_thread_tracked, with_thread_object_space, ObjectSpace,
+};
 pub use trace::{Trace, Tracer};
 
 #[cfg(feature = "sync")]

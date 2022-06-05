@@ -165,6 +165,11 @@ impl ObjectSpace {
         Cc::new_in_space(value, self)
     }
 
+    /// Leak all objects allocated in this space
+    pub fn leak(&self) {
+        *self.list.borrow_mut() = new_gc_list();
+    }
+
     // TODO: Consider implementing "merge" or method to collect multiple spaces
     // together, to make it easier to support generational collection.
 }
@@ -246,6 +251,11 @@ pub fn count_thread_tracked() -> usize {
 }
 
 thread_local!(pub(crate) static THREAD_OBJECT_SPACE: ObjectSpace = ObjectSpace::default());
+
+/// Acquire reference to thread-local global object space
+pub fn with_thread_object_space<R>(handler: impl FnOnce(&ObjectSpace) -> R) -> R {
+    THREAD_OBJECT_SPACE.with(handler)
+}
 
 /// Create an empty linked list with a dummy GcHeader.
 pub(crate) fn new_gc_list() -> Pin<Box<GcHeader>> {

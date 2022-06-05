@@ -1,6 +1,6 @@
-use crate::debug;
 use crate::testutil::test_small_graph;
 use crate::{collect, Cc, Trace, Tracer};
+use crate::{debug, with_thread_object_space};
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::ops::Deref;
@@ -507,6 +507,17 @@ fn test_trace_impl_double_visits() {
         });
         assert!(message.contains("bug: accessing a dropped CcBox detected"));
     }
+}
+
+#[test]
+#[ignore = "causes memory leak, thus causing valgrind to error"]
+fn leak() {
+    let a = Cc::new(1);
+    let b = Cc::new((a.clone(), 1));
+    with_thread_object_space(|s| s.leak());
+    assert_eq!(crate::count_thread_tracked(), 0);
+    assert_eq!(*a, 1);
+    let _ = b;
 }
 
 #[cfg(not(miri))]
