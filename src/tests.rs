@@ -1,6 +1,6 @@
-use crate::debug;
 use crate::testutil::test_small_graph;
 use crate::{collect, Cc, Trace, Tracer};
+use crate::{debug, Weak};
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::ops::Deref;
@@ -507,6 +507,27 @@ fn test_trace_impl_double_visits() {
         });
         assert!(message.contains("bug: accessing a dropped CcBox detected"));
     }
+}
+
+#[test]
+fn test_cc_ptr_eq() {
+    let a = Cc::new(1);
+    let b = a.clone();
+    let c = Cc::new(1);
+
+    assert!(Cc::ptr_eq(&a, &b));
+    assert!(!Cc::ptr_eq(&a, &c));
+}
+
+#[test]
+fn test_weak_ptr_eq() {
+    let a = Cc::new(1);
+    let b = a.downgrade();
+    let a = a.downgrade();
+    let c = Cc::new(1).downgrade();
+
+    assert!(Weak::ptr_eq(&a, &b));
+    assert!(!Weak::ptr_eq(&a, &c));
 }
 
 #[cfg(not(miri))]

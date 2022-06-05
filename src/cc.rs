@@ -377,6 +377,12 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawCc<T, O> {
     pub fn strong_count(&self) -> usize {
         self.ref_count()
     }
+
+    /// Returns `true` if the two `Cc`s point to the same allocation
+    #[inline]
+    pub fn ptr_eq(this: &Self, other: &Self) -> bool {
+        this.0.as_ptr() == other.0.as_ptr()
+    }
 }
 
 impl<T: ?Sized, O: AbstractObjectSpace> RawWeak<T, O> {
@@ -411,6 +417,12 @@ impl<T: ?Sized, O: AbstractObjectSpace> RawWeak<T, O> {
     #[inline]
     pub fn weak_count(&self) -> usize {
         self.inner().weak_count()
+    }
+
+    /// Returns `true` if the two `Weak`s point to the same allocation
+    #[inline]
+    pub fn ptr_eq(this: &Self, other: &Self) -> bool {
+        this.0.as_ptr() == other.0.as_ptr()
     }
 }
 
