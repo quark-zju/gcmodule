@@ -87,6 +87,8 @@ impl AbstractObjectSpace for ObjectSpace {
     type Header = GcHeader;
 
     fn insert(&self, header: &mut Self::Header, value: &dyn CcDyn) {
+        // Assert GcHeader alignment during insertion
+        assert_eq!((header as *const _ as usize) % 4, 0, "Inserted GcHeader pointer is not 4-byte aligned");
         let prev: &GcHeader = &self.list.borrow();
         debug_assert!(header.next.get().is_null());
         let next = prev.next.get();
@@ -283,6 +285,11 @@ const PREV_SHIFT: u32 = 2;
 /// Idea comes from https://bugs.python.org/issue33597.
 fn update_refs<L: Linked>(list: &L) {
     visit_list(list, |header| {
+        // Assert GcHeader alignment before modifying prev
+        assert_eq!((header as *const _ as usize) % 4, 0, "GcHeader pointer in update_refs is not 4-byte aligned");
+        let original_prev = header.prev();
+        assert_eq!((original_prev as usize) % 4, 0, "GcHeader.prev pointer in update_refs is not 4-byte aligned before modification");
+
         let ref_count = header.value().gc_ref_count();
         // It's possible that the ref_count becomes 0 in a multi-thread context:
         //  thread 1> drop()
@@ -426,11 +433,33 @@ fn release_unreachable<L: Linked, K>(list: &L, lock: K) -> usize {
 
 /// Restore `GcHeader.prev` as a pointer used in the linked list.
 fn restore_prev<L: Linked>(list: &L) {
-    let mut prev = list;
+    let mut prev_node_in_list = list;
     visit_list(list, |header| {
-        header.set_prev(prev);
-        prev = header;
+        // Assert GcHeader alignment before modifying prev
+        assert_eq!((header as *const _ as usize) % 4, 0, "GcHeader pointer in restore_prev is not 4-byte aligned");
+        
+        header.set_prev(prev_node_in_list);
+        
+        // Assert GcHeader alignment after restoring prev
+        let restored_prev_ptr = header.prev();
+        assert_eq!((restored_prev_ptr as usize) % 4, 0, "Restored GcHeader.prev pointer in restore_prev is not 4-byte aligned");
+        
+        prev_node_in_list = header;
     });
+
+    // Final check for the list head itself if it's part of the restoration logic,
+    // ensuring its prev points to the last element which should also be aligned.
+    // The list head's prev pointer should point to the last actual element in the list.
+    // And the last element's next pointer should point to the list head.
+    // visit_list does not yield the list head itself, so we check list.prev()
+    // which should be the last element processed by visit_list's `prev = header`
+    // then that last element's prev should be the one before it.
+    // The `list` itself (sentinel) should also be aligned.
+    assert_eq!((list as *const _ as usize) % 4, 0, "List sentinel pointer is not 4-byte aligned in restore_prev");
+    if list.next() as *const _ != list as *const _ { // if not empty list
+        let last_elem_ptr = list.prev(); // This is what `prev_node_in_list` became after the loop
+        assert_eq!((last_elem_ptr as usize) % 4, 0, "List sentinel's prev pointer (last element) is not 4-byte aligned in restore_prev");
+    }
 }
 
 fn is_unreachable<L: Linked>(header: &L) -> bool {

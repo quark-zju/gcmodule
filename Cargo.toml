@@ -18,7 +18,7 @@ gcmodule_derive = { version = "=0.3.3", optional = true, path = "gcmodule_derive
 parking_lot = { version = "0.10", optional = true }
 
 [features]
-default = ["derive", "sync"]
+default = ["derive", "sync", "debug"]
 debug = []
 derive = ["gcmodule_derive"]
 nightly = []
